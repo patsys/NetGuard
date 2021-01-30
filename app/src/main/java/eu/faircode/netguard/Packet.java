@@ -29,6 +29,7 @@ public class Packet {
     public String daddr;
     public int dport;
     public String data;
+    public byte packetData[];
     public int uid;
     public boolean allowed;
 

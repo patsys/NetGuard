@@ -299,17 +299,20 @@ void handle_ip(const struct arguments *args,
     // Check if allowed
     int allowed = 0;
     struct allowed *redirect = NULL;
-    if (protocol == IPPROTO_UDP && has_udp_session(args, pkt, payload))
+    if (protocol == IPPROTO_UDP && has_udp_session(args, pkt, payload)) {
         allowed = 1; // could be a lingering/blocked session
-    else if (protocol == IPPROTO_TCP && (!syn || (uid == 0 && dport == 53)))
+    }
+    else if (protocol == IPPROTO_TCP && ((uid == 0 && dport == 53))) {
         allowed = 1; // assume existing session
+    }
     else {
         jobject objPacket = create_packet(
-                args, version, protocol, flags, source, sport, dest, dport, data, uid, 0);
+                args, version, protocol, flags, source, sport, dest, dport, data,pkt,length, uid, 0);
         redirect = is_address_allowed(args, objPacket);
         allowed = (redirect != NULL);
         if (redirect != NULL && (*redirect->raddr == 0 || redirect->rport == 0))
             redirect = NULL;
+
     }
 
     // Handle allowed traffic

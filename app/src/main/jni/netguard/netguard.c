@@ -813,6 +813,7 @@ jfieldID fidSport = NULL;
 jfieldID fidDaddr = NULL;
 jfieldID fidDport = NULL;
 jfieldID fidData = NULL;
+jfieldID fidPacketData = NULL;
 jfieldID fidUid = NULL;
 jfieldID fidAllowed = NULL;
 
@@ -825,6 +826,8 @@ jobject create_packet(const struct arguments *args,
                       const char *dest,
                       jint dport,
                       const char *data,
+                      const char *packetData,
+                      jint packetDataSize,
                       jint uid,
                       jboolean allowed) {
     JNIEnv *env = args->env;
@@ -840,6 +843,8 @@ jobject create_packet(const struct arguments *args,
         jbyteArray ret = env->NewByteArray(3);
         env->SetByteArrayRegion (ret, 0, 3, b);
      */
+
+    log_android(ANDROID_LOG_WARN, "packet size %i", packetDataSize);
 
     const char *packet = "eu/faircode/netguard/Packet";
     if (midInitPacket == NULL)
@@ -858,6 +863,7 @@ jobject create_packet(const struct arguments *args,
         fidDaddr = jniGetFieldID(env, clsPacket, "daddr", string);
         fidDport = jniGetFieldID(env, clsPacket, "dport", "I");
         fidData = jniGetFieldID(env, clsPacket, "data", string);
+        fidPacketData = jniGetFieldID(env, clsPacket, "packetData", "[B");
         fidUid = jniGetFieldID(env, clsPacket, "uid", "I");
         fidAllowed = jniGetFieldID(env, clsPacket, "allowed", "Z");
     }
@@ -869,10 +875,12 @@ jobject create_packet(const struct arguments *args,
     jstring jsource = (*env)->NewStringUTF(env, source);
     jstring jdest = (*env)->NewStringUTF(env, dest);
     jstring jdata = (*env)->NewStringUTF(env, data);
+    jbyteArray jpacketData = (*env)->NewByteArray(env,packetDataSize);
     ng_add_alloc(jflags, "jflags");
     ng_add_alloc(jsource, "jsource");
     ng_add_alloc(jdest, "jdest");
     ng_add_alloc(jdata, "jdata");
+    ng_add_alloc(jpacketData,"jpacketData");
 
     (*env)->SetLongField(env, jpacket, fidTime, t);
     (*env)->SetIntField(env, jpacket, fidVersion, version);
@@ -884,7 +892,8 @@ jobject create_packet(const struct arguments *args,
     (*env)->SetIntField(env, jpacket, fidDport, dport);
     (*env)->SetObjectField(env, jpacket, fidData, jdata);
     (*env)->SetIntField(env, jpacket, fidUid, uid);
-    (*env)->SetBooleanField(env, jpacket, fidAllowed, allowed);
+    (*env)->SetByteArrayRegion(env, jpacketData, 0, packetDataSize, packetData);
+    (*env)->SetObjectField(env,jpacket,fidPacketData,jpacketData);
 
     (*env)->DeleteLocalRef(env, jdata);
     (*env)->DeleteLocalRef(env, jdest);

@@ -84,6 +84,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.math.BigInteger;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -109,6 +111,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import javax.net.ssl.HttpsURLConnection;
+
+import de.patsys.net.PCapFileWriter;
+import io.pkts.PacketHandler;
+import io.pkts.Pcap;
 
 public class ServiceSinkhole extends VpnService implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final String TAG = "NetGuard.Service";
@@ -182,6 +188,9 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
     private static final int MSG_PACKET = 4;
     private static final int MSG_USAGE = 5;
 
+    public ServiceSinkhole() throws IOException {
+    }
+
     private enum State {none, waiting, enforcing, stats}
 
     public enum Command {run, start, reload, stop, stats, set, householding, watchdog}
@@ -193,6 +202,11 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
     private static final String ACTION_HOUSE_HOLDING = "eu.faircode.netguard.HOUSE_HOLDING";
     private static final String ACTION_SCREEN_OFF_DELAYED = "eu.faircode.netguard.SCREEN_OFF_DELAYED";
     private static final String ACTION_WATCHDOG = "eu.faircode.netguard.WATCHDOG";
+
+    private PipedInputStream pcapInput = new PipedInputStream();
+    private PipedOutputStream pcapOutput = new PipedOutputStream(pcapInput);
+    private PCapFileWriter pcapWriter = new PCapFileWriter(pcapOutput);
+    private Thread pcapThread = null;
 
     private native long jni_init(int sdk);
 
@@ -1230,6 +1244,31 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
                 }
             }
 
+            pcapThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Pcap.openStream(pcapInput).loop(new PacketHandler() {
+                            @Override
+                            public boolean nextPacket(io.pkts.packet.Packet packet) throws IOException {
+                                Log.w("eanrit",packet.getProtocol().toString());
+                                while (pcapInput.available()==0){
+                                    try {
+                                        Thread.sleep(100);
+                                    } catch (InterruptedException e) {
+                                        e.printStackTrace();
+                                    }
+                                }
+                                return true;
+                            }
+                        });
+                        pcapThread.start();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+            pcapThread.start();
             return pfd;
         } catch (SecurityException ex) {
             throw ex;
@@ -1889,7 +1928,12 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 
         lock.readLock().lock();
-
+        try {
+            Log.w("enartit",Integer.toHexString(packet.packetData[0]));
+            pcapWriter.addPacket(packet.packetData,System.currentTimeMillis()*1000000);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         packet.allowed = false;
         if (prefs.getBoolean("filter", false)) {
             // https://android.googlesource.com/platform/system/core/+/master/include/private/android_filesystem_config.h
