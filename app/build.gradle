@@ -81,5 +81,4 @@ dependencies {
     }
     annotationProcessor 'com.github.bumptech.glide:compiler:4.11.0'
 
-    implementation group: 'io.pkts', name: 'pkts-core', version: '3.0.7'
 }
