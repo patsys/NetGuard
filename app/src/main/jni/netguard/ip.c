@@ -307,13 +307,15 @@ void handle_ip(const struct arguments *args,
     }
     else {
         jobject objPacket = create_packet(
-                args, version, protocol, flags, source, sport, dest, dport, data,pkt,length, uid, 0);
+                    args, version, protocol, flags, source, sport, dest, dport, data, pkt, length,
+                    uid, 0 );
         redirect = is_address_allowed(args, objPacket);
         allowed = (redirect != NULL);
         if (redirect != NULL && (*redirect->raddr == 0 || redirect->rport == 0))
             redirect = NULL;
 
     }
+
 
     // Handle allowed traffic
     if (allowed) {

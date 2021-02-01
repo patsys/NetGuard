@@ -529,7 +529,7 @@ jobject create_packet(const struct arguments *args,
                       const char *dest,
                       jint dport,
                       const char *data,
-                      const char *packet,
+                      const char *packetData,
                       jint packetSize,
                       jint uid,
                       jboolean allowed);

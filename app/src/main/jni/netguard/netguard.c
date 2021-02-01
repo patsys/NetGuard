@@ -867,13 +867,19 @@ jobject create_packet(const struct arguments *args,
     jstring jsource = (*env)->NewStringUTF(env, source);
     jstring jdest = (*env)->NewStringUTF(env, dest);
     jstring jdata = (*env)->NewStringUTF(env, data);
-    jbyteArray jpacketData = (*env)->NewByteArray(env,packetDataSize);
     ng_add_alloc(jflags, "jflags");
     ng_add_alloc(jsource, "jsource");
     ng_add_alloc(jdest, "jdest");
     ng_add_alloc(jdata, "jdata");
-    ng_add_alloc(jpacketData,"jpacketData");
 
+    if(packetDataSize > 0) {
+        jbyteArray jpacketData = (*env)->NewByteArray(env,packetDataSize);
+        ng_add_alloc(jpacketData, "jpacketData");
+        (*env)->SetByteArrayRegion(env, jpacketData, 0, packetDataSize, packetData);
+        (*env)->SetObjectField(env,jpacket,fidPacketData,jpacketData);
+        (*env)->DeleteLocalRef(env, jpacketData);
+        ng_delete_alloc(jpacketData, __FILE__, __LINE__);
+    }
     (*env)->SetLongField(env, jpacket, fidTime, t);
     (*env)->SetIntField(env, jpacket, fidVersion, version);
     (*env)->SetIntField(env, jpacket, fidProtocol, protocol);
@@ -884,13 +890,15 @@ jobject create_packet(const struct arguments *args,
     (*env)->SetIntField(env, jpacket, fidDport, dport);
     (*env)->SetObjectField(env, jpacket, fidData, jdata);
     (*env)->SetIntField(env, jpacket, fidUid, uid);
-    (*env)->SetByteArrayRegion(env, jpacketData, 0, packetDataSize, packetData);
-    (*env)->SetObjectField(env,jpacket,fidPacketData,jpacketData);
+
 
     (*env)->DeleteLocalRef(env, jdata);
     (*env)->DeleteLocalRef(env, jdest);
     (*env)->DeleteLocalRef(env, jsource);
     (*env)->DeleteLocalRef(env, jflags);
+
+
+
     ng_delete_alloc(jdata, __FILE__, __LINE__);
     ng_delete_alloc(jdest, __FILE__, __LINE__);
     ng_delete_alloc(jsource, __FILE__, __LINE__);

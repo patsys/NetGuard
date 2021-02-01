@@ -84,8 +84,6 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PipedInputStream;
-import java.io.PipedOutputStream;
 import java.math.BigInteger;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
@@ -1895,57 +1893,66 @@ public class ServiceSinkhole extends VpnService implements SharedPreferences.OnS
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
 
         lock.readLock().lock();
-        packet.allowed = false;
-        if (prefs.getBoolean("filter", false)) {
-            // https://android.googlesource.com/platform/system/core/+/master/include/private/android_filesystem_config.h
-            if (packet.protocol == 17 /* UDP */ && !prefs.getBoolean("filter_udp", false)) {
-                // Allow unfiltered UDP
-                packet.allowed = true;
-                Log.i(TAG, "Allowing UDP " + packet);
-            } else if (packet.uid < 2000 &&
-                    !last_connected && isSupported(packet.protocol) && false) {
-                // Allow system applications in disconnected state
-                packet.allowed = true;
-                Log.w(TAG, "Allowing disconnected system " + packet);
-            } else if (packet.uid < 2000 &&
-                    !mapUidKnown.containsKey(packet.uid) && isSupported(packet.protocol)) {
-                // Allow unknown system traffic
-                packet.allowed = true;
-                Log.w(TAG, "Allowing unknown system " + packet);
-            } else if (packet.uid == Process.myUid()) {
-                // Allow self
-                packet.allowed = true;
-                Log.w(TAG, "Allowing self " + packet);
-            } else {
-                boolean filtered = false;
-                IPKey key = new IPKey(packet.version, packet.protocol, packet.dport, packet.uid);
-                if (mapUidIPFilters.containsKey(key))
-                    try {
-                        InetAddress iaddr = InetAddress.getByName(packet.daddr);
-                        Map<InetAddress, IPRule> map = mapUidIPFilters.get(key);
-                        if (map != null && map.containsKey(iaddr)) {
-                            IPRule rule = map.get(iaddr);
-                            if (rule.isExpired())
-                                Log.i(TAG, "DNS expired " + packet + " rule " + rule);
-                            else {
-                                filtered = true;
-                                packet.allowed = !rule.isBlocked();
-                                Log.i(TAG, "Filtering " + packet +
-                                        " allowed=" + packet.allowed + " rule " + rule);
+        if (packet.protocol==6 && packet.flags.equals("A")) {
+            packet.allowed=true;
+            ParseNetwork.parse(packet);
+        }else if(packet.protocol==6 && ! packet.flags.contains("S")){
+            packet.allowed=true;
+        }else{
+            packet.allowed=false;
+        }
+        //packet.allowed = false;
+        if(packet.allowed==false) {
+            if (prefs.getBoolean("filter", false)) {
+                // https://android.googlesource.com/platform/system/core/+/master/include/private/android_filesystem_config.h
+                if (packet.protocol == 17 /* UDP */ && !prefs.getBoolean("filter_udp", false)) {
+                    // Allow unfiltered UDP
+                    packet.allowed = true;
+                    Log.i(TAG, "Allowing UDP " + packet);
+                } else if (packet.uid < 2000 &&
+                        !last_connected && isSupported(packet.protocol) && false) {
+                    // Allow system applications in disconnected state
+                    packet.allowed = true;
+                    Log.w(TAG, "Allowing disconnected system " + packet);
+                } else if (packet.uid < 2000 &&
+                        !mapUidKnown.containsKey(packet.uid) && isSupported(packet.protocol)) {
+                    // Allow unknown system traffic
+                    packet.allowed = true;
+                    Log.w(TAG, "Allowing unknown system " + packet);
+                } else if (packet.uid == Process.myUid()) {
+                    // Allow self
+                    packet.allowed = true;
+                    Log.w(TAG, "Allowing self " + packet);
+                } else {
+                    boolean filtered = false;
+                    IPKey key = new IPKey(packet.version, packet.protocol, packet.dport, packet.uid);
+                    if (mapUidIPFilters.containsKey(key))
+                        try {
+                            InetAddress iaddr = InetAddress.getByName(packet.daddr);
+                            Map<InetAddress, IPRule> map = mapUidIPFilters.get(key);
+                            if (map != null && map.containsKey(iaddr)) {
+                                IPRule rule = map.get(iaddr);
+                                if (rule.isExpired())
+                                    Log.i(TAG, "DNS expired " + packet + " rule " + rule);
+                                else {
+                                    filtered = true;
+                                    packet.allowed = !rule.isBlocked();
+                                    Log.i(TAG, "Filtering " + packet +
+                                            " allowed=" + packet.allowed + " rule " + rule);
+                                }
                             }
+                        } catch (UnknownHostException ex) {
+                            Log.w(TAG, "Allowed " + ex.toString() + "\n" + Log.getStackTraceString(ex));
                         }
-                    } catch (UnknownHostException ex) {
-                        Log.w(TAG, "Allowed " + ex.toString() + "\n" + Log.getStackTraceString(ex));
-                    }
 
-                if (!filtered)
-                    if (mapUidAllowed.containsKey(packet.uid))
-                        packet.allowed = mapUidAllowed.get(packet.uid);
-                    else
-                        Log.w(TAG, "No rules for " + packet);
+                    if (!filtered)
+                        if (mapUidAllowed.containsKey(packet.uid))
+                            packet.allowed = mapUidAllowed.get(packet.uid);
+                        else
+                            Log.w(TAG, "No rules for " + packet);
+                }
             }
         }
-
         Allowed allowed = null;
         if (packet.allowed) {
             if (mapForward.containsKey(packet.dport)) {
