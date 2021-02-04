@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-kapt'
+
+
 
 android {
     compileSdkVersion = 30
@@ -66,6 +69,30 @@ android {
 }
 
 dependencies {
+
+    def lifecycle_version = "2.2.0"
+    def arch_version = "2.1.0"
+
+    // ViewModel
+    implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"
+    // LiveData
+    implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycle_version"
+    // Lifecycles only (without ViewModel or LiveData)
+    implementation "androidx.lifecycle:lifecycle-runtime-ktx:$lifecycle_version"
+
+    // Saved state module for ViewModel
+    implementation "androidx.lifecycle:lifecycle-viewmodel-savedstate:$lifecycle_version"
+
+    // Annotation processor
+    kapt "androidx.lifecycle:lifecycle-compiler:$lifecycle_version"
+
+    // optional - helpers for implementing LifecycleOwner in a Service
+    implementation "androidx.lifecycle:lifecycle-service:$lifecycle_version"
+
+    // optional - ProcessLifecycleOwner provides a lifecycle for the whole application process
+    implementation "androidx.lifecycle:lifecycle-process:$lifecycle_version"
+
+
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
     // https://developer.android.com/jetpack/androidx/releases/
