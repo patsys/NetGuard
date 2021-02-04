@@ -4,8 +4,7 @@ import android.app.PendingIntent
 import android.content.*
 import android.graphics.Paint
 import android.net.*
-import android.os.Build
-import android.os.Build.SERIAL
+import android.os.Build.*
 import android.os.Bundle
 import android.provider.Settings.*
 import android.provider.Settings.Secure.*
@@ -192,17 +191,17 @@ import java.util.*
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
+        return when (item.itemId) {
             android.R.id.home -> {
                 Log.i(TAG, "Up")
                 NavUtils.navigateUpFromSameTask(this)
-                return true
+                true
             }
             R.id.menu_challenge -> {
                 menu_challenge()
-                return true
+                true
             }
-            else -> return super.onOptionsItemSelected(item)
+            else -> super.onOptionsItemSelected(item)
         }
     }
 
@@ -218,9 +217,9 @@ import java.util.*
                 .setView(view)
                 .setCancelable(true)
                 .create()
-        val android_id: String = getString(getContentResolver(), ANDROID_ID)
-        val challenge: String = (if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) SERIAL else "O3$android_id")
-        val seed: String = (if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) "NetGuard2" else "NetGuard3")
+        val android_id: String = getString(contentResolver, ANDROID_ID)
+        val challenge: String = (if (VERSION.SDK_INT < VERSION_CODES.O) SERIAL else "O3$android_id")
+        val seed: String = (if (VERSION.SDK_INT < VERSION_CODES.O) "NetGuard2" else "NetGuard3")
 
         // Challenge
         val tvChallenge: TextView = view.findViewById(R.id.tvChallenge)

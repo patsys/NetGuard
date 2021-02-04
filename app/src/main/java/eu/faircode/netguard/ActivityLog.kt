@@ -6,8 +6,6 @@ import android.content.SharedPreferences.OnSharedPreferenceChangeListener
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.*
-import android.os.AsyncTask
-import android.os.Build
 import android.os.Bundle
 import android.text.TextUtils
 import android.util.Log
@@ -19,8 +17,11 @@ import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.NavUtils
 import androidx.preference.PreferenceManager
-import eu.faircode.netguard.ActivityLog
 import eu.faircode.netguard.DatabaseHelper.LogChangedListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
@@ -47,24 +48,28 @@ import java.util.*
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class ActivityLog constructor() : AppCompatActivity(), OnSharedPreferenceChangeListener {
+*/   class ActivityLog : AppCompatActivity(), OnSharedPreferenceChangeListener {
     private var running: Boolean = false
-    private var lvLog: ListView? = null
-    private var adapter: AdapterLog? = null
+    private lateinit var lvLog: ListView
+    private lateinit var adapter: AdapterLog
     private var menuSearch: MenuItem? = null
     private var live: Boolean = false
     private var resolve: Boolean = false
     private var organization: Boolean = false
     private var vpn4: InetAddress? = null
     private var vpn6: InetAddress? = null
-    private val listener: LogChangedListener = object : LogChangedListener {
-        public override fun onChanged() {
-            runOnUiThread { updateAdapter() }
+    val uiScope = CoroutineScope(Dispatchers.Main)
+    private val listener: LogChangedListener by lazy {
+        object : LogChangedListener {
+            override fun onChanged() {
+                runOnUiThread { updateAdapter() }
+            }
         }
     }
 
+    @SuppressLint("InflateParams")
     override fun onCreate(savedInstanceState: Bundle?) {
-        if (!IAB.Companion.isPurchased(ActivityPro.Companion.SKU_LOG, this)) {
+        if (!IAB.isPurchased(ActivityPro.SKU_LOG, this)) {
             startActivity(Intent(this, ActivityPro::class.java))
             finish()
         }
@@ -74,12 +79,13 @@ import java.util.*
         running = true
 
         // Action bar
-        val actionView: View = getLayoutInflater().inflate(R.layout.actionlog, null, false)
-        val swEnabled: SwitchCompat = actionView.findViewById(R.id.swEnabled)
-        getSupportActionBar()!!.setDisplayShowCustomEnabled(true)
-        getSupportActionBar()!!.setCustomView(actionView)
-        getSupportActionBar()!!.setTitle(R.string.menu_log)
-        getSupportActionBar()!!.setDisplayHomeAsUpEnabled(true)
+        val actionView: View = layoutInflater.inflate(R.layout.actionlog, null, false)
+        val swEnabled: SwitchCompat
+        swEnabled = actionView.findViewById(R.id.swEnabled)
+        supportActionBar!!.setDisplayShowCustomEnabled(true)
+        supportActionBar!!.customView = actionView
+        supportActionBar!!.setTitle(R.string.menu_log)
+        supportActionBar!!.setDisplayHomeAsUpEnabled(true)
 
         // Get settings
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
@@ -89,11 +95,11 @@ import java.util.*
 
         // Show disabled message
         val tvDisabled: TextView = findViewById(R.id.tvDisabled)
-        tvDisabled.setVisibility(if (log) View.GONE else View.VISIBLE)
+        tvDisabled.visibility = if (log) View.GONE else View.VISIBLE
 
         // Set enabled switch
-        swEnabled.setChecked(log)
-        swEnabled.setOnCheckedChangeListener { buttonView, isChecked -> prefs.edit().putBoolean("log", isChecked).apply() }
+        swEnabled.isChecked = log
+        swEnabled.setOnCheckedChangeListener { _, isChecked -> prefs.edit().putBoolean("log", isChecked).apply() }
 
         // Listen for preference changes
         prefs.registerOnSharedPreferenceChangeListener(this)
@@ -103,23 +109,19 @@ import java.util.*
         val other: Boolean = prefs.getBoolean("proto_other", true)
         val allowed: Boolean = prefs.getBoolean("traffic_allowed", true)
         val blocked: Boolean = prefs.getBoolean("traffic_blocked", true)
-        adapter = AdapterLog(this, DatabaseHelper.Companion.getInstance(this)!!.getLog(udp, tcp, other, allowed, blocked), resolve, organization)
-        adapter!!.filterQueryProvider = object : FilterQueryProvider {
-            public override fun runQuery(constraint: CharSequence): Cursor {
-                return DatabaseHelper.Companion.getInstance(this@ActivityLog)!!.searchLog(constraint.toString())
-            }
-        }
-        lvLog.setAdapter(adapter)
+        adapter = AdapterLog(this, DatabaseHelper.getInstance(this).getLog(udp, tcp, other, allowed, blocked), resolve, organization)
+        adapter.filterQueryProvider = FilterQueryProvider { constraint -> DatabaseHelper.getInstance(this@ActivityLog).searchLog(constraint.toString()) }
+        lvLog.adapter = adapter
         try {
             vpn4 = InetAddress.getByName(prefs.getString("vpn4", "10.1.10.1"))
             vpn6 = InetAddress.getByName(prefs.getString("vpn6", "fd00:1:fd00:1:fd00:1:fd00:1"))
         } catch (ex: UnknownHostException) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
         }
-        lvLog.setOnItemClickListener(object : OnItemClickListener {
-            public override fun onItemClick(parent: AdapterView<*>?, view: View, position: Int, id: Long) {
+        lvLog.onItemClickListener = object : OnItemClickListener {
+            override fun onItemClick(parent: AdapterView<*>?, view: View, position: Int, id: Long) {
                 val pm: PackageManager = packageManager
-                val cursor: Cursor = adapter!!.getItem(position) as Cursor
+                val cursor: Cursor = adapter.getItem(position) as Cursor
                 val time: Long = cursor.getLong(cursor.getColumnIndex("time"))
                 val version: Int = cursor.getInt(cursor.getColumnIndex("version"))
                 val protocol: Int = cursor.getInt(cursor.getColumnIndex("protocol"))
@@ -149,33 +151,37 @@ import java.util.*
                 }
 
                 // Build popup menu
-                val popup: PopupMenu = PopupMenu(this@ActivityLog, findViewById(R.id.vwPopupAnchor))
+                val popup = PopupMenu(this@ActivityLog, findViewById(R.id.vwPopupAnchor))
                 popup.inflate(R.menu.log)
 
                 // Application name
-                if (uid >= 0) popup.getMenu().findItem(R.id.menu_application).setTitle(TextUtils.join(", ", Util.getApplicationNames(uid, this@ActivityLog))) else popup.menu.removeItem(R.id.menu_application)
+                if (uid >= 0) popup.menu.findItem(R.id.menu_application).title = TextUtils.join(", ", Util.getApplicationNames(uid, this@ActivityLog)) else popup.menu.removeItem(R.id.menu_application)
 
                 // Destination IP
-                popup.getMenu().findItem(R.id.menu_protocol).setTitle(Util.getProtocolName(protocol, version, false))
+                popup.menu.findItem(R.id.menu_protocol).title = Util.getProtocolName(protocol, version, false)
 
                 // Whois
-                val lookupIP: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.dnslytics.com/whois-lookup/$ip"))
-                if (pm.resolveActivity(lookupIP, 0) == null) popup.getMenu().removeItem(R.id.menu_whois) else popup.menu.findItem(R.id.menu_whois).title = getString(R.string.title_log_whois, ip)
+                val lookupIP = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.dnslytics.com/whois-lookup/$ip"))
+                if (pm.resolveActivity(lookupIP, 0) == null) {
+                    popup.menu.removeItem(R.id.menu_whois)
+                } else popup.menu.findItem(R.id.menu_whois).title = getString(R.string.title_log_whois, ip)
 
                 // Lookup port
-                val lookupPort: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.speedguide.net/port.php?port=$port"))
-                if (port <= 0 || pm.resolveActivity(lookupPort, 0) == null) popup.getMenu().removeItem(R.id.menu_port) else popup.getMenu().findItem(R.id.menu_port).title = getString(R.string.title_log_port, port)
+                val lookupPort = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.speedguide.net/port.php?port=$port"))
+                if (port <= 0 || pm.resolveActivity(lookupPort, 0) == null) popup.menu.removeItem(R.id.menu_port) else popup.menu.findItem(R.id.menu_port).title = getString(R.string.title_log_port, port)
                 if (prefs.getBoolean("filter", false)) {
                     if (uid <= 0) {
                         popup.menu.removeItem(R.id.menu_allow)
                         popup.menu.removeItem(R.id.menu_block)
                     }
                 } else {
-                    popup.menu.removeItem(R.id.menu_allow)
-                    popup.menu.removeItem(R.id.menu_block)
+                    with(popup) {
+                        menu.removeItem(R.id.menu_allow)
+                        menu.removeItem(R.id.menu_block)
+                    }
                 }
-                val packet: Packet = Packet()
-                packet.version = version
+                val packet = Packet()
+                version.also { packet.version = it }
                 packet.protocol = protocol
                 packet.daddr = daddr
                 packet.dport = dport
@@ -184,15 +190,15 @@ import java.util.*
                 packet.allowed = (allowed > 0)
 
                 // Time
-                popup.getMenu().findItem(R.id.menu_time).setTitle(SimpleDateFormat.getDateTimeInstance().format(time))
+                popup.getMenu().findItem(R.id.menu_time).title = SimpleDateFormat.getDateTimeInstance().format(time)
 
                 // Handle click
                 popup.setOnMenuItemClickListener(object : PopupMenu.OnMenuItemClickListener {
-                    public override fun onMenuItemClick(menuItem: MenuItem): Boolean {
+                    override fun onMenuItemClick(menuItem: MenuItem): Boolean {
                         when (menuItem.itemId) {
                             R.id.menu_application -> {
-                                val main: Intent = Intent(this@ActivityLog, ActivityMain::class.java)
-                                main.putExtra(ActivityMain.Companion.EXTRA_SEARCH, uid.toString())
+                                val main = Intent(this@ActivityLog, ActivityMain::class.java)
+                                main.putExtra(ActivityMain.EXTRA_SEARCH, uid.toString())
                                 startActivity(main)
                                 return true
                             }
@@ -205,21 +211,21 @@ import java.util.*
                                 return true
                             }
                             R.id.menu_allow -> {
-                                if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_FILTER, this@ActivityLog)) {
-                                    DatabaseHelper.Companion.getInstance(this@ActivityLog)!!.updateAccess(packet, dname, 0)
-                                    ServiceSinkhole.Companion.reload("allow host", this@ActivityLog, false)
-                                    val main: Intent = Intent(this@ActivityLog, ActivityMain::class.java)
-                                    main.putExtra(ActivityMain.Companion.EXTRA_SEARCH, uid.toString())
+                                if (IAB.isPurchased(ActivityPro.SKU_FILTER, this@ActivityLog)) {
+                                    DatabaseHelper.getInstance(this@ActivityLog).updateAccess(packet, dname, 0)
+                                    ServiceSinkhole.reload("allow host", this@ActivityLog, false)
+                                    val main = Intent(this@ActivityLog, ActivityMain::class.java)
+                                    main.putExtra(ActivityMain.EXTRA_SEARCH, uid.toString())
                                     startActivity(main)
                                 } else startActivity(Intent(this@ActivityLog, ActivityPro::class.java))
                                 return true
                             }
                             R.id.menu_block -> {
-                                if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_FILTER, this@ActivityLog)) {
-                                    DatabaseHelper.Companion.getInstance(this@ActivityLog)!!.updateAccess(packet, dname, 1)
-                                    ServiceSinkhole.Companion.reload("block host", this@ActivityLog, false)
-                                    val main: Intent = Intent(this@ActivityLog, ActivityMain::class.java)
-                                    main.putExtra(ActivityMain.Companion.EXTRA_SEARCH, Integer.toString(uid))
+                                if (IAB.isPurchased(ActivityPro.SKU_FILTER, this@ActivityLog)) {
+                                    DatabaseHelper.getInstance(this@ActivityLog).updateAccess(packet, dname, 1)
+                                    ServiceSinkhole.reload("block host", this@ActivityLog, false)
+                                    val main = Intent(this@ActivityLog, ActivityMain::class.java)
+                                    main.putExtra(ActivityMain.EXTRA_SEARCH, uid.toString())
                                     startActivity(main)
                                 } else startActivity(Intent(this@ActivityLog, ActivityPro::class.java))
                                 return true
@@ -239,32 +245,31 @@ import java.util.*
                 // Show
                 popup.show()
             }
-        })
+        }
         live = true
     }
 
     override fun onResume() {
         super.onResume()
         if (live) {
-            DatabaseHelper.Companion.getInstance(this)!!.addLogChangedListener(listener)
+            DatabaseHelper.getInstance(this).addLogChangedListener(listener)
             updateAdapter()
         }
     }
 
     override fun onPause() {
         super.onPause()
-        if (live) DatabaseHelper.Companion.getInstance(this)!!.removeLogChangedListener(listener)
+        if (live) DatabaseHelper.getInstance(this).removeLogChangedListener(listener)
     }
 
     override fun onDestroy() {
         running = false
-        adapter = null
         PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this)
         super.onDestroy()
     }
 
-    public override fun onSharedPreferenceChanged(prefs: SharedPreferences, name: String) {
-        Log.i(TAG, "Preference " + name + "=" + prefs.getAll().get(name))
+    override fun onSharedPreferenceChanged(prefs: SharedPreferences, name: String) {
+        Log.i(TAG, "Preference " + name + "=" + prefs.all[name])
         if (("log" == name)) {
             // Get enabled
             val log: Boolean = prefs.getBoolean(name, false)
@@ -274,36 +279,36 @@ import java.util.*
             tvDisabled.visibility = if (log) View.GONE else View.VISIBLE
 
             // Check switch state
-            val swEnabled: SwitchCompat = supportActionBar!!.getCustomView().findViewById(R.id.swEnabled)
+            val swEnabled: SwitchCompat = this.supportActionBar!!.customView.findViewById(R.id.swEnabled)
             if (swEnabled.isChecked() != log) swEnabled.isChecked = log
-            ServiceSinkhole.Companion.reload("changed $name", this@ActivityLog, false)
+            ServiceSinkhole.reload("changed $name", this@ActivityLog, false)
         }
     }
 
-    public override fun onCreateOptionsMenu(menu: Menu): Boolean {
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
         val inflater: MenuInflater = menuInflater
         inflater.inflate(R.menu.logging, menu)
         menuSearch = menu.findItem(R.id.menu_search)
-        val searchView: SearchView = menuSearch.getActionView() as SearchView
+        val searchView: SearchView = menuSearch!!.actionView as SearchView
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            public override fun onQueryTextSubmit(query: String): Boolean {
-                if (adapter != null) adapter!!.getFilter().filter(getUidForName(query))
+            override fun onQueryTextSubmit(query: String): Boolean {
+                adapter.filter.filter(getUidForName(query))
                 return true
             }
 
-            public override fun onQueryTextChange(newText: String): Boolean {
-                if (adapter != null) adapter!!.getFilter().filter(getUidForName(newText))
+            override fun onQueryTextChange(newText: String): Boolean {
+                adapter.filter.filter(getUidForName(newText))
                 return true
             }
         })
         searchView.setOnCloseListener {
-            if (adapter != null) adapter!!.filter.filter(null)
+            adapter.filter.filter(null)
             true
         }
         return true
     }
 
-    public override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
 
         // https://gist.github.com/granoeste/5574148
@@ -330,99 +335,84 @@ import java.util.*
             android.R.id.home -> {
                 Log.i(TAG, "Up")
                 NavUtils.navigateUpFromSameTask(this)
-                return true
             }
             R.id.menu_protocol_udp -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("proto_udp", item.isChecked).apply()
                 updateAdapter()
-                return true
             }
             R.id.menu_protocol_tcp -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("proto_tcp", item.isChecked).apply()
                 updateAdapter()
-                return true
             }
             R.id.menu_protocol_other -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("proto_other", item.isChecked).apply()
                 updateAdapter()
-                return true
             }
             R.id.menu_traffic_allowed -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("traffic_allowed", item.isChecked).apply()
                 updateAdapter()
-                return true
             }
             R.id.menu_traffic_blocked -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("traffic_blocked", item.isChecked).apply()
                 updateAdapter()
-                return true
             }
             R.id.menu_log_live -> {
                 item.isChecked = !item.isChecked
                 live = item.isChecked
                 if (live) {
-                    DatabaseHelper.Companion.getInstance(this)!!.addLogChangedListener(listener)
+                    DatabaseHelper.getInstance(this).addLogChangedListener(listener)
                     updateAdapter()
-                } else DatabaseHelper.Companion.getInstance(this)!!.removeLogChangedListener(listener)
-                return true
+                } else DatabaseHelper.getInstance(this).removeLogChangedListener(listener)
             }
             R.id.menu_refresh -> {
                 updateAdapter()
-                return true
             }
             R.id.menu_log_resolve -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("resolve", item.isChecked).apply()
-                adapter!!.setResolve(item.isChecked)
-                adapter!!.notifyDataSetChanged()
-                return true
+                adapter.setResolve(item.isChecked)
+                adapter.notifyDataSetChanged()
             }
             R.id.menu_log_organization -> {
                 item.isChecked = !item.isChecked
-                prefs.edit().putBoolean("organization", item.isChecked()).apply()
-                adapter!!.setOrganization(item.isChecked())
-                adapter!!.notifyDataSetChanged()
-                return true
+                prefs.edit().putBoolean("organization", item.isChecked).apply()
+                adapter.setOrganization(item.isChecked)
+                adapter.notifyDataSetChanged()
             }
             R.id.menu_pcap_enabled -> {
                 item.isChecked = !item.isChecked
                 prefs.edit().putBoolean("pcap", item.isChecked).apply()
-                ServiceSinkhole.Companion.setPcap(item.isChecked, this@ActivityLog)
-                return true
+                ServiceSinkhole.setPcap(item.isChecked, this@ActivityLog)
             }
             R.id.menu_pcap_export -> {
                 startActivityForResult(intentPCAPDocument, REQUEST_PCAP)
-                return true
             }
             R.id.menu_log_clear -> {
-                object : AsyncTask<Any?, Any?, Any?>() {
-                    protected override fun doInBackground(vararg objects: Any): Any? {
-                        DatabaseHelper.Companion.getInstance(this@ActivityLog)!!.clearLog(-1)
+                uiScope.launch {
+                    withContext(Dispatchers.Default) {
+                        DatabaseHelper.getInstance(this@ActivityLog).clearLog(-1)
                         if (prefs.getBoolean("pcap", false)) {
-                            ServiceSinkhole.Companion.setPcap(false, this@ActivityLog)
+                            ServiceSinkhole.setPcap(false, this@ActivityLog)
                             if (pcap_file.exists() && !pcap_file.delete()) Log.w(TAG, "Delete PCAP failed")
-                            ServiceSinkhole.Companion.setPcap(true, this@ActivityLog)
+                            ServiceSinkhole.setPcap(true, this@ActivityLog)
                         } else {
                             if (pcap_file.exists() && !pcap_file.delete()) Log.w(TAG, "Delete PCAP failed")
                         }
-                        return null
+                        withContext(Dispatchers.Main) {
+                            if (running) updateAdapter()
+                        }
                     }
-
-                    override fun onPostExecute(result: Any?) {
-                        if (running) updateAdapter()
-                    }
-                }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
-                return true
+                }
             }
             R.id.menu_log_support -> {
-                val intent: Intent = Intent(Intent.ACTION_VIEW)
-                intent.setData(Uri.parse("https://github.com/M66B/NetGuard/blob/master/FAQ.md#user-content-faq27"))
-                if (getPackageManager().resolveActivity(intent, 0) != null) startActivity(intent)
+                val intent = Intent(Intent.ACTION_VIEW)
+                intent.data = Uri.parse("https://github.com/M66B/NetGuard/blob/master/FAQ.md#user-content-faq27")
+                if (packageManager.resolveActivity(intent, 0) != null) startActivity(intent)
                 return true
             }
             else -> return super.onOptionsItemSelected(item)
@@ -430,24 +420,22 @@ import java.util.*
     }
 
     private fun updateAdapter() {
-        if (adapter != null) {
-            val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
-            val udp: Boolean = prefs.getBoolean("proto_udp", true)
-            val tcp: Boolean = prefs.getBoolean("proto_tcp", true)
-            val other: Boolean = prefs.getBoolean("proto_other", true)
-            val allowed: Boolean = prefs.getBoolean("traffic_allowed", true)
-            val blocked: Boolean = prefs.getBoolean("traffic_blocked", true)
-            adapter!!.changeCursor(DatabaseHelper.Companion.getInstance(this)!!.getLog(udp, tcp, other, allowed, blocked))
-            if (menuSearch != null && menuSearch!!.isActionViewExpanded()) {
-                val searchView: SearchView = menuSearch!!.getActionView() as SearchView
-                adapter!!.getFilter().filter(getUidForName(searchView.getQuery().toString()))
-            }
+        val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+        val udp: Boolean = prefs.getBoolean("proto_udp", true)
+        val tcp: Boolean = prefs.getBoolean("proto_tcp", true)
+        val other: Boolean = prefs.getBoolean("proto_other", true)
+        val allowed: Boolean = prefs.getBoolean("traffic_allowed", true)
+        val blocked: Boolean = prefs.getBoolean("traffic_blocked", true)
+        adapter.changeCursor(DatabaseHelper.getInstance(this).getLog(udp, tcp, other, allowed, blocked))
+        if (menuSearch != null && menuSearch!!.isActionViewExpanded) {
+            val searchView: SearchView = menuSearch!!.actionView as SearchView
+            adapter.filter.filter(getUidForName(searchView.query.toString()))
         }
     }
 
     private fun getUidForName(query: String?): String? {
         if (query != null && query.isNotEmpty()) {
-            for (rule: Rule? in Rule.Companion.getRules(true, this@ActivityLog)) if (rule!!.name != null && rule.name!!.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
+            for (rule: Rule? in Rule.getRules(true, this@ActivityLog)) if (rule!!.name != null && rule.name!!.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) {
                 val newQuery: String = rule.uid.toString()
                 Log.i(TAG, "Search $query  found  ${rule.name} new $newQuery")
                 return newQuery
@@ -458,21 +446,11 @@ import java.util.*
     }
 
     private val intentPCAPDocument: Intent
-        @SuppressLint("SimpleDateFormat") private get() {
-            val intent: Intent
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-                if (Util.isPackageInstalled("org.openintents.filemanager", this)) {
-                    intent = Intent("org.openintents.action.PICK_DIRECTORY")
-                } else {
-                    intent = Intent(Intent.ACTION_VIEW)
-                    intent.data = Uri.parse("https://play.google.com/store/apps/details?id=org.openintents.filemanager")
-                }
-            } else {
-                intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-                intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.setType("application/octet-stream")
-                intent.putExtra(Intent.EXTRA_TITLE, "netguard_" + SimpleDateFormat("yyyyMMdd").format(Date().time) + ".pcap")
-            }
+        @SuppressLint("SimpleDateFormat") get() {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.type = "application/octet-stream"
+            intent.putExtra(Intent.EXTRA_TITLE, "netguard_" + SimpleDateFormat("yyyyMMdd").format(Date().time) + ".pcap")
             return intent
         }
 
@@ -487,8 +465,8 @@ import java.util.*
     }
 
     private fun handleExportPCAP(data: Intent) {
-        object : AsyncTask<Any?, Any?, Throwable?>() {
-            protected override fun doInBackground(vararg objects: Any): Throwable? {
+        uiScope.launch {
+            withContext(Dispatchers.Default) {
                 var out: OutputStream? = null
                 var `in`: FileInputStream? = null
                 try {
@@ -508,10 +486,14 @@ import java.util.*
                         total += len.toLong()
                     }
                     Log.i(TAG, "Copied bytes=$total")
-                    return null
+                    withContext(Dispatchers.Main){
+                        Toast.makeText(this@ActivityLog, R.string.msg_completed, Toast.LENGTH_LONG).show()
+                    }
                 } catch (ex: Throwable) {
                     Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-                    return ex
+                    withContext(Dispatchers.Main){
+                         Toast.makeText(this@ActivityLog, ex.toString(), Toast.LENGTH_LONG).show()
+                    }
                 } finally {
                     if (out != null) try {
                         out.close()
@@ -529,15 +511,11 @@ import java.util.*
                     if (prefs.getBoolean("pcap", false)) ServiceSinkhole.Companion.setPcap(true, this@ActivityLog)
                 }
             }
-
-            override fun onPostExecute(ex: Throwable?) {
-                if (ex == null) Toast.makeText(this@ActivityLog, R.string.msg_completed, Toast.LENGTH_LONG).show() else Toast.makeText(this@ActivityLog, ex.toString(), Toast.LENGTH_LONG).show()
-            }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
+        }
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Log"
-        private val REQUEST_PCAP: Int = 1
+        private const val TAG: String = "NetGuard.Log"
+        private const val REQUEST_PCAP: Int = 1
     }
 }

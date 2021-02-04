@@ -1,5 +1,6 @@
 package eu.faircode.netguard
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.database.Cursor
@@ -37,18 +38,19 @@ import java.util.*
     private val colAName: Int
     private val colResource: Int
     private val colTTL: Int
-    public override fun newView(context: Context, cursor: Cursor, parent: ViewGroup): View {
+    override fun newView(context: Context, cursor: Cursor, parent: ViewGroup): View {
         return LayoutInflater.from(context).inflate(R.layout.dns, parent, false)
     }
 
-    public override fun bindView(view: View, context: Context, cursor: Cursor) {
+    @SuppressLint("SetTextI18n", "SimpleDateFormat")
+    override fun bindView(view: View, context: Context, cursor: Cursor) {
         // Get values
         val time: Long = cursor.getLong(colTime)
         val qname: String = cursor.getString(colQName)
         val aname: String = cursor.getString(colAName)
         val resource: String = cursor.getString(colResource)
         val ttl: Int = cursor.getInt(colTTL)
-        val now: Long = Date().getTime()
+        val now: Long = Date().time
         val expired: Boolean = (time + ttl < now)
         view.setBackgroundColor(if (expired) colorExpired else Color.TRANSPARENT)
 
@@ -60,16 +62,16 @@ import java.util.*
         val tvTTL: TextView = view.findViewById(R.id.tvTTL)
 
         // Set values
-        tvTime.setText(SimpleDateFormat("dd HH:mm").format(time))
-        tvQName.setText(qname)
-        tvAName.setText(aname)
-        tvResource.setText(resource)
-        tvTTL.setText("+" + Integer.toString(ttl / 1000))
+        tvTime.text = SimpleDateFormat("dd HH:mm").format(time)
+        tvQName.text = qname
+        tvAName.text = aname
+        tvResource.text = resource
+        tvTTL.text = "+" + (ttl / 1000).toString()
     }
 
     init {
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-        if (prefs.getBoolean("dark_theme", false)) colorExpired = Color.argb(128, Color.red(Color.DKGRAY), Color.green(Color.DKGRAY), Color.blue(Color.DKGRAY)) else colorExpired = Color.argb(128, Color.red(Color.LTGRAY), Color.green(Color.LTGRAY), Color.blue(Color.LTGRAY))
+        colorExpired = if (prefs.getBoolean("dark_theme", false)) Color.argb(128, Color.red(Color.DKGRAY), Color.green(Color.DKGRAY), Color.blue(Color.DKGRAY)) else Color.argb(128, Color.red(Color.LTGRAY), Color.green(Color.LTGRAY), Color.blue(Color.LTGRAY))
         colTime = cursor.getColumnIndex("time")
         colQName = cursor.getColumnIndex("qname")
         colAName = cursor.getColumnIndex("aname")

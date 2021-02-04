@@ -39,20 +39,20 @@ import java.text.SimpleDateFormat
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   class AdapterLog constructor(context: Context, cursor: Cursor, private var resolve: Boolean, private var organization: Boolean) : CursorAdapter(context, cursor, 0) {
-    private val colTime: Int
-    private val colVersion: Int
-    private val colProtocol: Int
-    private val colFlags: Int
-    private val colSAddr: Int
-    private val colSPort: Int
-    private val colDAddr: Int
-    private val colDPort: Int
-    private val colDName: Int
-    private val colUid: Int
-    private val colData: Int
-    private val colAllowed: Int
-    private val colConnection: Int
-    private val colInteractive: Int
+    private val colTime: Int = cursor.getColumnIndex("time")
+    private val colVersion: Int = cursor.getColumnIndex("version")
+    private val colProtocol: Int = cursor.getColumnIndex("protocol")
+    private val colFlags: Int = cursor.getColumnIndex("flags")
+    private val colSAddr: Int = cursor.getColumnIndex("saddr")
+    private val colSPort: Int = cursor.getColumnIndex("sport")
+    private val colDAddr: Int = cursor.getColumnIndex("daddr")
+    private val colDPort: Int = cursor.getColumnIndex("dport")
+    private val colDName: Int = cursor.getColumnIndex("dname")
+    private val colUid: Int = cursor.getColumnIndex("uid")
+    private val colData: Int = cursor.getColumnIndex("data")
+    private val colAllowed: Int = cursor.getColumnIndex("allowed")
+    private val colConnection: Int = cursor.getColumnIndex("connection")
+    private val colInteractive: Int = cursor.getColumnIndex("interactive")
     private val colorOn: Int
     private val colorOff: Int
     private val iconSize: Int
@@ -271,20 +271,6 @@ import java.text.SimpleDateFormat
     }
 
     init {
-        colTime = cursor.getColumnIndex("time")
-        colVersion = cursor.getColumnIndex("version")
-        colProtocol = cursor.getColumnIndex("protocol")
-        colFlags = cursor.getColumnIndex("flags")
-        colSAddr = cursor.getColumnIndex("saddr")
-        colSPort = cursor.getColumnIndex("sport")
-        colDAddr = cursor.getColumnIndex("daddr")
-        colDPort = cursor.getColumnIndex("dport")
-        colDName = cursor.getColumnIndex("dname")
-        colUid = cursor.getColumnIndex("uid")
-        colData = cursor.getColumnIndex("data")
-        colAllowed = cursor.getColumnIndex("allowed")
-        colConnection = cursor.getColumnIndex("connection")
-        colInteractive = cursor.getColumnIndex("interactive")
         val tv: TypedValue = TypedValue()
         context.getTheme().resolveAttribute(R.attr.colorOn, tv, true)
         colorOn = tv.data

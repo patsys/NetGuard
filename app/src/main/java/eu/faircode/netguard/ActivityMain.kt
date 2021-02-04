@@ -1,14 +1,13 @@
 package eu.faircode.netguard
 
+import android.R.string.yes
 import android.annotation.SuppressLint
 import android.content.*
 import android.content.SharedPreferences.OnSharedPreferenceChangeListener
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.drawable.Drawable
 import android.net.*
-import android.os.AsyncTask
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -22,23 +21,22 @@ import android.text.style.UnderlineSpan
 import android.util.Log
 import android.util.TypedValue
 import android.view.*
-import android.view.View.OnLongClickListener
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.SwitchCompat
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout.OnRefreshListener
-import eu.faircode.netguard.ActivityMain
 import eu.faircode.netguard.DatabaseHelper.AccessChangedListener
-import eu.faircode.netguardimport.ActivitySettings
 import eu.faircode.netguardimport.ReceiverAutostart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /*
@@ -60,19 +58,21 @@ import kotlin.math.roundToInt
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   class ActivityMain : AppCompatActivity(), OnSharedPreferenceChangeListener {
     private var running: Boolean = false
-    private var ivIcon: ImageView? = null
-    private var ivQueue: ImageView? = null
-    private var swEnabled: SwitchCompat? = null
-    private var ivMetered: ImageView? = null
-    private var swipeRefresh: SwipeRefreshLayout? = null
-    private var adapter: AdapterRule? = null
+    private lateinit var ivIcon: ImageView
+    private lateinit var ivQueue: ImageView
+    private lateinit var swEnabled: SwitchCompat
+    private lateinit var ivMetered: ImageView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var adapter: AdapterRule
     private var menuSearch: MenuItem? = null
-    private var dialogFirst: AlertDialog? = null
+    private lateinit var dialogFirst: AlertDialog
     private var dialogVpn: AlertDialog? = null
     private var dialogDoze: AlertDialog? = null
     private var dialogLegend: AlertDialog? = null
     private var dialogAbout: AlertDialog? = null
     private var iab: IAB? = null
+    val uiScope = CoroutineScope(Dispatchers.Main)
+    @SuppressLint("InflateParams", "RtlHardcoded")
     override fun onCreate(savedInstanceState: Bundle?) {
         Log.i(TAG, "Create version=" + Util.getSelfVersionName(this) + "/" + Util.getSelfVersionCode(this))
         Util.logExtras(intent)
@@ -103,7 +103,7 @@ import kotlin.math.roundToInt
         // Upgrade
         ReceiverAutostart.upgrade(initialized, this)
         if (!intent.hasExtra(EXTRA_APPROVE)) {
-            if (enabled) ServiceSinkhole.Companion.start("UI", this) else ServiceSinkhole.Companion.stop("UI", this, false)
+            if (enabled) ServiceSinkhole.start("UI", this) else ServiceSinkhole.stop("UI", this, false)
         }
 
         // Action bar
@@ -114,31 +114,31 @@ import kotlin.math.roundToInt
         ivMetered = actionView.findViewById(R.id.ivMetered)
 
         // Icon
-        ivIcon.setOnLongClickListener(OnLongClickListener {
+        ivIcon.setOnLongClickListener {
             menu_about()
             true
-        })
+        }
 
         // Title
-        supportActionBar.setTitle(null)
+        supportActionBar!!.setTitle("")
 
         // Netguard is busy
-        ivQueue.setOnLongClickListener(OnLongClickListener {
-            val location: IntArray = IntArray(2)
+        ivQueue.setOnLongClickListener {
+            val location = IntArray(2)
             actionView.getLocationOnScreen(location)
             val toast: Toast = Toast.makeText(this@ActivityMain, R.string.msg_queue, Toast.LENGTH_LONG)
             toast.setGravity(
                     Gravity.TOP or Gravity.LEFT,
-                    location.get(0) + ivQueue.getLeft(),
-                    (location.get(1) + ivQueue.getBottom() - toast.getView()!!.getPaddingTop()).toFloat().roundToInt())
+                    location[0] + ivQueue.left,
+                    (location[1] + ivQueue.bottom - toast.view!!.paddingTop).toFloat().roundToInt())
             toast.show()
             true
-        })
+        }
 
         // On/off switch
-        swEnabled.setChecked(enabled)
+        swEnabled.isChecked = enabled
         swEnabled.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
+            override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
                 Log.i(TAG, "Switch=$isChecked")
                 prefs.edit().putBoolean("enabled", isChecked).apply()
                 if (isChecked) {
@@ -149,13 +149,13 @@ import kotlin.math.roundToInt
                             val lockdown: Int = Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0)
                             Log.i(TAG, "Lockdown=$lockdown")
                             if (lockdown != 0) {
-                                swEnabled.setChecked(false)
+                                swEnabled.isChecked = false
                                 Toast.makeText(this@ActivityMain, R.string.msg_always_on_lockdown, Toast.LENGTH_LONG).show()
                                 return
                             }
                         }
                     } else {
-                        swEnabled.setChecked(false)
+                        swEnabled.isChecked = false
                         Toast.makeText(this@ActivityMain, R.string.msg_always_on, Toast.LENGTH_LONG).show()
                         return
                     }
@@ -173,9 +173,9 @@ import kotlin.math.roundToInt
                             dialogVpn = AlertDialog.Builder(this@ActivityMain)
                                     .setView(view)
                                     .setCancelable(false)
-                                    .setPositiveButton(android.R.string.yes) { _, _ ->
+                                    .setPositiveButton(yes) { _, _ ->
                                         if (running) {
-                                            Log.i(TAG, "Start intent=" + prepare)
+                                            Log.i(TAG, "Start intent=$prepare")
                                             try {
                                                 // com.android.vpndialogs.ConfirmDialog required
                                                 startActivityForResult(prepare, REQUEST_VPN)
@@ -195,23 +195,23 @@ import kotlin.math.roundToInt
                         Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                         prefs.edit().putBoolean("enabled", false).apply()
                     }
-                } else ServiceSinkhole.Companion.stop("switch off", this@ActivityMain, false)
+                } else ServiceSinkhole.stop("switch off", this@ActivityMain, false)
             }
         })
         if (enabled) checkDoze()
 
         // Network is metered
-        ivMetered.setOnLongClickListener(OnLongClickListener {
-            val location: IntArray = IntArray(2)
+        ivMetered.setOnLongClickListener {
+            val location = IntArray(2)
             actionView.getLocationOnScreen(location)
             val toast: Toast = Toast.makeText(this@ActivityMain, R.string.msg_metered, Toast.LENGTH_LONG)
             toast.setGravity(
                     Gravity.TOP or Gravity.LEFT,
-                    location.get(0) + ivMetered.getLeft(),
-                    (location.get(1) + ivMetered.getBottom() - toast.getView()!!.paddingTop).toFloat().roundToInt())
+                    location[0] + ivMetered.left,
+                    (location[1] + ivMetered.bottom - toast.view!!.paddingTop).toFloat().roundToInt())
             toast.show()
             true
-        })
+        }
         supportActionBar!!.setDisplayShowCustomEnabled(true)
         supportActionBar!!.customView = actionView
 
@@ -222,23 +222,23 @@ import kotlin.math.roundToInt
         // Application list
         val rvApplication: RecyclerView = findViewById(R.id.rvApplication)
         rvApplication.setHasFixedSize(false)
-        val llm: LinearLayoutManager = LinearLayoutManager(this)
-        llm.setAutoMeasureEnabled(true)
+        val llm = LinearLayoutManager(this)
+        llm.isAutoMeasureEnabled = true
         rvApplication.layoutManager = llm
         adapter = AdapterRule(this, findViewById(R.id.vwPopupAnchor))
         rvApplication.adapter = adapter
 
         // Swipe to refresh
-        val tv: TypedValue = TypedValue()
+        val tv = TypedValue()
         theme.resolveAttribute(R.attr.colorPrimary, tv, true)
         swipeRefresh = findViewById(R.id.swipeRefresh)
         swipeRefresh.setColorSchemeColors(Color.WHITE, Color.WHITE, Color.WHITE)
         swipeRefresh.setProgressBackgroundColorSchemeColor(tv.data)
-        swipeRefresh.setOnRefreshListener(OnRefreshListener {
-            Rule.Companion.clearCache(this@ActivityMain)
-            ServiceSinkhole.Companion.reload("pull", this@ActivityMain, false)
+        swipeRefresh.setOnRefreshListener {
+            Rule.clearCache(this@ActivityMain)
+            ServiceSinkhole.reload("pull", this@ActivityMain, false)
             updateApplicationList(null)
-        })
+        }
 
         // Hint usage
         val llUsage: LinearLayout = findViewById(R.id.llUsage)
@@ -266,15 +266,15 @@ import kotlin.math.roundToInt
         prefs.registerOnSharedPreferenceChangeListener(this)
 
         // Listen for rule set changes
-        val ifr: IntentFilter = IntentFilter(ACTION_RULES_CHANGED)
+        val ifr = IntentFilter(ACTION_RULES_CHANGED)
         LocalBroadcastManager.getInstance(this).registerReceiver(onRulesChanged, ifr)
 
         // Listen for queue changes
-        val ifq: IntentFilter = IntentFilter(ACTION_QUEUE_CHANGED)
+        val ifq = IntentFilter(ACTION_QUEUE_CHANGED)
         LocalBroadcastManager.getInstance(this).registerReceiver(onQueueChanged, ifq)
 
         // Listen for added/removed applications
-        val intentFilter: IntentFilter = IntentFilter()
+        val intentFilter = IntentFilter()
         intentFilter.addAction(Intent.ACTION_PACKAGE_ADDED)
         intentFilter.addAction(Intent.ACTION_PACKAGE_REMOVED)
         intentFilter.addDataScheme("package")
@@ -296,15 +296,14 @@ import kotlin.math.roundToInt
             dialogFirst = AlertDialog.Builder(this)
                     .setView(view)
                     .setCancelable(false)
-                    .setPositiveButton(R.string.app_agree) { dialog, which ->
+                    .setPositiveButton(R.string.app_agree) { _, _ ->
                         if (running) {
                             prefs.edit().putBoolean("initialized", true).apply()
                         }
                     }
-                    .setNegativeButton(R.string.app_disagree) { dialog, which -> if (running) finish() }
-                    .setOnDismissListener { dialogFirst = null }
+                    .setNegativeButton(R.string.app_disagree) { _, _ -> if (running) finish() }
                     .create()
-            dialogFirst!!.show()
+            dialogFirst.show()
         }
 
         // Fill application list
@@ -313,15 +312,15 @@ import kotlin.math.roundToInt
         // Update IAB SKUs
         try {
             iab = IAB(object : IAB.Delegate {
-                public override fun onReady(iab: IAB) {
+                override fun onReady(iab: IAB) {
                     try {
                         iab.updatePurchases()
-                        if (!IAB.Companion.isPurchased(ActivityPro.Companion.SKU_LOG, this@ActivityMain)) prefs.edit().putBoolean("log", false).apply()
-                        if (!IAB.Companion.isPurchased(ActivityPro.Companion.SKU_THEME, this@ActivityMain)) {
-                            if (!("teal" == prefs.getString("theme", "teal"))) prefs.edit().putString("theme", "teal").apply()
+                        if (!IAB.isPurchased(ActivityPro.SKU_LOG, this@ActivityMain)) prefs.edit().putBoolean("log", false).apply()
+                        if (!IAB.isPurchased(ActivityPro.SKU_THEME, this@ActivityMain)) {
+                            if ("teal" != prefs.getString("theme", "teal")) prefs.edit().putString("theme", "teal").apply()
                         }
-                        if (!IAB.Companion.isPurchased(ActivityPro.Companion.SKU_NOTIFY, this@ActivityMain)) prefs.edit().putBoolean("install", false).apply()
-                        if (!IAB.Companion.isPurchased(ActivityPro.Companion.SKU_SPEED, this@ActivityMain)) prefs.edit().putBoolean("show_stats", false).apply()
+                        if (!IAB.isPurchased(ActivityPro.SKU_NOTIFY, this@ActivityMain)) prefs.edit().putBoolean("install", false).apply()
+                        if (!IAB.isPurchased(ActivityPro.SKU_SPEED, this@ActivityMain)) prefs.edit().putBoolean("show_stats", false).apply()
                     } catch (ex: Throwable) {
                         Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                     } finally {
@@ -337,7 +336,7 @@ import kotlin.math.roundToInt
         // Support
         val llSupport: LinearLayout = findViewById(R.id.llSupport)
         val tvSupport: TextView = findViewById(R.id.tvSupport)
-        val content: SpannableString = SpannableString(getString(R.string.app_support))
+        val content = SpannableString(getString(R.string.app_support))
         content.setSpan(UnderlineSpan(), 0, content.length, 0)
         tvSupport.text = content
         llSupport.setOnClickListener { startActivity(getIntentPro(this@ActivityMain)) }
@@ -364,11 +363,11 @@ import kotlin.math.roundToInt
             super.onResume()
             return
         }
-        DatabaseHelper.Companion.getInstance(this)!!.addAccessChangedListener(accessChangedListener)
-        if (adapter != null) adapter!!.notifyDataSetChanged()
+        DatabaseHelper.getInstance(this).addAccessChangedListener(accessChangedListener)
+        adapter.notifyDataSetChanged()
         val pm: PackageManager = packageManager
         val llSupport: LinearLayout = findViewById(R.id.llSupport)
-        llSupport.visibility = if (IAB.Companion.isPurchasedAny(this) || getIntentPro(this).resolveActivity(pm) == null) View.GONE else View.VISIBLE
+        llSupport.visibility = if (IAB.isPurchasedAny(this) || getIntentPro(this).resolveActivity(pm) == null) View.GONE else View.VISIBLE
         super.onResume()
     }
 
@@ -376,10 +375,10 @@ import kotlin.math.roundToInt
         Log.i(TAG, "Pause")
         super.onPause()
         if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) return
-        DatabaseHelper.Companion.getInstance(this)!!.removeAccessChangedListener(accessChangedListener)
+        DatabaseHelper.getInstance(this).removeAccessChangedListener(accessChangedListener)
     }
 
-    public override fun onConfigurationChanged(newConfig: Configuration) {
+    override fun onConfigurationChanged(newConfig: Configuration) {
         Log.i(TAG, "Config")
         super.onConfigurationChanged(newConfig)
         if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) return
@@ -392,15 +391,11 @@ import kotlin.math.roundToInt
             return
         }
         running = false
-        adapter = null
         PreferenceManager.getDefaultSharedPreferences(this).unregisterOnSharedPreferenceChangeListener(this)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(onRulesChanged)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(onQueueChanged)
         unregisterReceiver(packageChangedReceiver)
-        if (dialogFirst != null) {
-            dialogFirst!!.dismiss()
-            dialogFirst = null
-        }
+        dialogFirst.dismiss()
         if (dialogVpn != null) {
             dialogVpn!!.dismiss()
             dialogVpn = null
@@ -432,7 +427,7 @@ import kotlin.math.roundToInt
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
             prefs.edit().putBoolean("enabled", resultCode == RESULT_OK).apply()
             if (resultCode == RESULT_OK) {
-                ServiceSinkhole.Companion.start("prepared", this)
+                ServiceSinkhole.start("prepared", this)
                 val on: Toast = Toast.makeText(this@ActivityMain, R.string.msg_on, Toast.LENGTH_LONG)
                 on.setGravity(Gravity.CENTER, 0, 0)
                 on.show()
@@ -454,12 +449,12 @@ import kotlin.math.roundToInt
         }
     }
 
-    public override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (requestCode == REQUEST_ROAMING) if (grantResults.get(0) == PackageManager.PERMISSION_GRANTED) ServiceSinkhole.Companion.reload("permission granted", this, false)
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (requestCode == REQUEST_ROAMING) if (grantResults[0] == PackageManager.PERMISSION_GRANTED) ServiceSinkhole.reload("permission granted", this, false)
     }
 
-    public override fun onSharedPreferenceChanged(prefs: SharedPreferences, name: String) {
-        Log.i(TAG, "Preference " + name + "=" + prefs.all.get(name))
+    override fun onSharedPreferenceChanged(prefs: SharedPreferences, name: String) {
+        Log.i(TAG, "Preference " + name + "=" + prefs.all[name])
         if (("enabled" == name)) {
             // Get enabled
             val enabled: Boolean = prefs.getBoolean(name, false)
@@ -478,7 +473,7 @@ import kotlin.math.roundToInt
             val whitelist_wifi: Boolean = prefs.getBoolean("whitelist_wifi", false)
             val whitelist_other: Boolean = prefs.getBoolean("whitelist_other", false)
             val hintWhitelist: Boolean = prefs.getBoolean("hint_whitelist", true)
-            llWhitelist.setVisibility(if (!(whitelist_wifi || whitelist_other) && screen_on && hintWhitelist) View.VISIBLE else View.GONE)
+            llWhitelist.visibility = if (!(whitelist_wifi || whitelist_other) && screen_on && hintWhitelist) View.VISIBLE else View.GONE
         } else if (("manage_system" == name)) {
             invalidateOptionsMenu()
             updateApplicationList(null)
@@ -490,44 +485,44 @@ import kotlin.math.roundToInt
     }
 
     private val accessChangedListener: AccessChangedListener = object : AccessChangedListener {
-        public override fun onChanged() {
-            runOnUiThread { if (adapter != null && adapter!!.isLive()) adapter!!.notifyDataSetChanged() }
+        override fun onChanged() {
+            runOnUiThread { if (adapter.isLive) adapter.notifyDataSetChanged() }
         }
     }
     private val onRulesChanged: BroadcastReceiver = object : BroadcastReceiver() {
-        public override fun onReceive(context: Context, intent: Intent) {
+        override fun onReceive(context: Context, intent: Intent) {
             Log.i(TAG, "Received $intent")
             Util.logExtras(intent)
-            if (adapter != null) if (intent.hasExtra(EXTRA_CONNECTED) && intent.hasExtra(EXTRA_METERED)) {
-                ivIcon!!.setImageResource(if (Util.isNetworkActive(this@ActivityMain)) R.drawable.ic_security_white_24dp else R.drawable.ic_security_white_24dp_60)
+            if (intent.hasExtra(EXTRA_CONNECTED) && intent.hasExtra(EXTRA_METERED)) {
+                ivIcon.setImageResource(if (Util.isNetworkActive(this@ActivityMain)) R.drawable.ic_security_white_24dp else R.drawable.ic_security_white_24dp_60)
                 if (intent.getBooleanExtra(EXTRA_CONNECTED, false)) {
-                    if (intent.getBooleanExtra(EXTRA_METERED, false)) adapter!!.setMobileActive() else adapter!!.setWifiActive()
-                    ivMetered!!.visibility = if (Util.isMeteredNetwork(this@ActivityMain)) View.VISIBLE else View.INVISIBLE
+                    if (intent.getBooleanExtra(EXTRA_METERED, false)) adapter.setMobileActive() else adapter.setWifiActive()
+                    ivMetered.visibility = if (Util.isMeteredNetwork(this@ActivityMain)) View.VISIBLE else View.INVISIBLE
                 } else {
-                    adapter!!.setDisconnected()
-                    ivMetered!!.visibility = View.INVISIBLE
+                    adapter.setDisconnected()
+                    ivMetered.visibility = View.INVISIBLE
                 }
             } else updateApplicationList(null)
         }
     }
     private val onQueueChanged: BroadcastReceiver = object : BroadcastReceiver() {
-        public override fun onReceive(context: Context, intent: Intent) {
+        override fun onReceive(context: Context, intent: Intent) {
             Log.i(TAG, "Received $intent")
             Util.logExtras(intent)
             val size: Int = intent.getIntExtra(EXTRA_SIZE, -1)
-            ivIcon!!.visibility = if (size == 0) View.VISIBLE else View.GONE
-            ivQueue!!.visibility = if (size == 0) View.GONE else View.VISIBLE
+            ivIcon.visibility = if (size == 0) View.VISIBLE else View.GONE
+            ivQueue.visibility = if (size == 0) View.GONE else View.VISIBLE
         }
     }
     private val packageChangedReceiver: BroadcastReceiver = object : BroadcastReceiver() {
-        public override fun onReceive(context: Context, intent: Intent) {
+        override fun onReceive(context: Context, intent: Intent) {
             Log.i(TAG, "Received $intent")
             Util.logExtras(intent)
             updateApplicationList(null)
         }
     }
 
-    public override fun onCreateOptionsMenu(menu: Menu): Boolean {
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
         if (Build.VERSION.SDK_INT < MIN_SDK) return false
         val pm: PackageManager = packageManager
         val inflater: MenuInflater = menuInflater
@@ -535,42 +530,42 @@ import kotlin.math.roundToInt
 
         // Search
         menuSearch = menu.findItem(R.id.menu_search)
-        menuSearch.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
-            public override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+        menuSearch!!.setOnActionExpandListener(object : MenuItem.OnActionExpandListener {
+            override fun onMenuItemActionExpand(item: MenuItem): Boolean {
                 return true
             }
 
-            public override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
-                if (getIntent().hasExtra(EXTRA_SEARCH) && !intent.getBooleanExtra(EXTRA_RELATED, false)) finish()
+            override fun onMenuItemActionCollapse(item: MenuItem): Boolean {
+                if (intent.hasExtra(EXTRA_SEARCH) && !intent.getBooleanExtra(EXTRA_RELATED, false)) finish()
                 return true
             }
         })
-        val searchView: SearchView = menuSearch.getActionView() as SearchView
+        val searchView: SearchView = menuSearch!!.actionView as SearchView
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            public override fun onQueryTextSubmit(query: String): Boolean {
-                if (adapter != null) adapter!!.filter.filter(query)
+            override fun onQueryTextSubmit(query: String): Boolean {
+                adapter.filter.filter(query)
                 searchView.clearFocus()
                 return true
             }
 
-            public override fun onQueryTextChange(newText: String): Boolean {
-                if (adapter != null) adapter!!.filter.filter(newText)
+            override fun onQueryTextChange(newText: String): Boolean {
+                adapter.filter.filter(newText)
                 return true
             }
         })
         searchView.setOnCloseListener {
             val intent: Intent = intent
             intent.removeExtra(EXTRA_SEARCH)
-            if (adapter != null) adapter!!.filter.filter(null)
+            adapter.filter.filter(null)
             true
         }
         val search: String? = intent.getStringExtra(EXTRA_SEARCH)
         if (search != null) {
-            menuSearch.expandActionView()
+            menuSearch!!.expandActionView()
             searchView.setQuery(search, true)
         }
-        markPro(menu.findItem(R.id.menu_log), ActivityPro.Companion.SKU_LOG)
-        if (!IAB.Companion.isPurchasedAny(this)) markPro(menu.findItem(R.id.menu_pro), null)
+        markPro(menu.findItem(R.id.menu_log), ActivityPro.SKU_LOG)
+        if (!IAB.isPurchasedAny(this)) markPro(menu.findItem(R.id.menu_pro), null)
         if (!Util.hasValidFingerprint(this) || getIntentInvite(this).resolveActivity(pm) == null) menu.removeItem(R.id.menu_invite)
         if (intentSupport.resolveActivity(packageManager) == null) menu.removeItem(R.id.menu_support)
         menu.findItem(R.id.menu_apps).isEnabled = getIntentApps(this).resolveActivity(pm) != null
@@ -578,16 +573,16 @@ import kotlin.math.roundToInt
     }
 
     private fun markPro(menu: MenuItem, sku: String?) {
-        if (sku == null || !IAB.Companion.isPurchased(sku, this)) {
+        if (sku == null || !IAB.isPurchased(sku, this)) {
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
             val dark: Boolean = prefs.getBoolean("dark_theme", false)
-            val ssb: SpannableStringBuilder = SpannableStringBuilder("  " + menu.getTitle())
+            val ssb = SpannableStringBuilder("  " + menu.title)
             ssb.setSpan(ImageSpan(this, if (dark) R.drawable.ic_shopping_cart_white_24dp else R.drawable.ic_shopping_cart_black_24dp), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             menu.title = ssb
         }
     }
 
-    public override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         if (prefs.getBoolean("manage_system", false)) {
             menu.findItem(R.id.menu_app_user).isChecked = prefs.getBoolean("show_user", true)
@@ -605,7 +600,7 @@ import kotlin.math.roundToInt
         return super.onPrepareOptionsMenu(menu)
     }
 
-    public override fun onOptionsItemSelected(item: MenuItem): Boolean {
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
         Log.i(TAG, "Menu=" + item.title)
 
         // Handle item selection
@@ -613,7 +608,7 @@ import kotlin.math.roundToInt
         when (item.itemId) {
             R.id.menu_app_user -> {
                 item.isChecked = !item.isChecked
-                prefs.edit().putBoolean("show_user", item.isChecked()).apply()
+                prefs.edit().putBoolean("show_user", item.isChecked).apply()
                 return true
             }
             R.id.menu_app_system -> {
@@ -623,12 +618,12 @@ import kotlin.math.roundToInt
             }
             R.id.menu_app_nointernet -> {
                 item.isChecked = !item.isChecked
-                prefs.edit().putBoolean("show_nointernet", item.isChecked()).apply()
+                prefs.edit().putBoolean("show_nointernet", item.isChecked).apply()
                 return true
             }
             R.id.menu_app_disabled -> {
                 item.isChecked = !item.isChecked
-                prefs.edit().putBoolean("show_disabled", item.isChecked()).apply()
+                prefs.edit().putBoolean("show_disabled", item.isChecked).apply()
                 return true
             }
             R.id.menu_sort_name -> {
@@ -646,7 +641,7 @@ import kotlin.math.roundToInt
                 return true
             }
             R.id.menu_log -> {
-                if (Util.canFilter(this)) if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_LOG, this)) startActivity(Intent(this, ActivityLog::class.java)) else startActivity(Intent(this, ActivityPro::class.java)) else Toast.makeText(this, R.string.msg_unavailable, Toast.LENGTH_SHORT).show()
+                if (Util.canFilter(this)) if (IAB.isPurchased(ActivityPro.SKU_LOG, this)) startActivity(Intent(this, ActivityLog::class.java)) else startActivity(Intent(this, ActivityPro::class.java)) else Toast.makeText(this, R.string.msg_unavailable, Toast.LENGTH_SHORT).show()
                 return true
             }
             R.id.menu_settings -> {
@@ -701,7 +696,7 @@ import kotlin.math.roundToInt
         val llPush: LinearLayout = findViewById(R.id.llPush)
         val btnPush: Button = findViewById(R.id.btnPush)
         val hintPush: Boolean = prefs.getBoolean("hint_push", true)
-        llPush.setVisibility(if (hintPush && !hintUsage) View.VISIBLE else View.GONE)
+        llPush.visibility = if (hintPush && !hintUsage) View.VISIBLE else View.GONE
         btnPush.setOnClickListener {
             prefs.edit().putBoolean("hint_push", false).apply()
             llPush.visibility = View.GONE
@@ -723,47 +718,40 @@ import kotlin.math.roundToInt
         // Approve request
         if (intent.hasExtra(EXTRA_APPROVE)) {
             Log.i(TAG, "Requesting VPN approval")
-            swEnabled!!.toggle()
+            swEnabled.toggle()
         }
         if (intent.hasExtra(EXTRA_LOGCAT)) {
             Log.i(TAG, "Requesting logcat")
             val logcat: Intent = intentLogcat
-            if (logcat.resolveActivity(getPackageManager()) != null) startActivityForResult(logcat, REQUEST_LOGCAT)
+            if (logcat.resolveActivity(packageManager) != null) startActivityForResult(logcat, REQUEST_LOGCAT)
         }
     }
 
     private fun updateApplicationList(search: String?) {
         Log.i(TAG, "Update search=$search")
-        object : AsyncTask<Any?, Any?, List<Rule?>>() {
-            private var refreshing: Boolean = true
-            override fun onPreExecute() {
-                swipeRefresh!!.post { if (refreshing) swipeRefresh!!.isRefreshing = true }
-            }
-
-            protected override fun doInBackground(vararg arg: Any): List<Rule?> {
-                return Rule.Companion.getRules(false, this@ActivityMain)
-            }
-
-            override fun onPostExecute(result: List<Rule?>) {
-                if (running) {
-                    if (adapter != null) {
-                        adapter!!.set(result)
+        uiScope.launch {
+            withContext(Dispatchers.Main) {
+                var refreshing = true
+                swipeRefresh.post { if (refreshing) swipeRefresh.isRefreshing = true }
+                withContext(Dispatchers.Default) {}
+                val rule = Rule.getRules(false, this@ActivityMain)
+                withContext(Dispatchers.Main) {
+                    if (running) {
+                        adapter.set(rule)
                         updateSearch(search)
-                    }
-                    if (swipeRefresh != null) {
                         refreshing = false
-                        swipeRefresh!!.isRefreshing = false
+                        swipeRefresh.isRefreshing = false
                     }
                 }
             }
-        }.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
+        }
     }
 
     private fun updateSearch(search: String?) {
         if (menuSearch != null) {
-            val searchView: SearchView = menuSearch!!.getActionView() as SearchView
+            val searchView: SearchView = menuSearch!!.actionView as SearchView
             if (search == null) {
-                if (menuSearch!!.isActionViewExpanded) adapter!!.filter.filter(searchView.query.toString())
+                if (menuSearch!!.isActionViewExpanded) adapter.filter.filter(searchView.query.toString())
             } else {
                 menuSearch!!.expandActionView()
                 searchView.setQuery(search, true)
@@ -773,7 +761,7 @@ import kotlin.math.roundToInt
 
     private fun checkDoze() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val doze: Intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            val doze = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
             if (Util.batteryOptimizing(this) && packageManager.resolveActivity(doze, 0) != null) {
                 val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
                 if (!prefs.getBoolean("nodoze", false)) {
@@ -783,7 +771,7 @@ import kotlin.math.roundToInt
                     dialogDoze = AlertDialog.Builder(this)
                             .setView(view)
                             .setCancelable(true)
-                            .setPositiveButton(android.R.string.yes) { dialog, which ->
+                            .setPositiveButton(yes) { _, _ ->
                                 prefs.edit().putBoolean("nodoze", cbDontAsk.isChecked).apply()
                                 startActivity(doze)
                             }
@@ -801,7 +789,7 @@ import kotlin.math.roundToInt
 
     private fun checkDataSaving() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val settings: Intent = Intent(
+            val settings = Intent(
                     Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS,
                     Uri.parse("package:$packageName"))
             if (Util.dataSaving(this) && packageManager.resolveActivity(settings, 0) != null) try {
@@ -813,7 +801,7 @@ import kotlin.math.roundToInt
                     dialogDoze = AlertDialog.Builder(this)
                             .setView(view)
                             .setCancelable(true)
-                            .setPositiveButton(android.R.string.yes) { _, _ ->
+                            .setPositiveButton(yes) { _, _ ->
                                 prefs.edit().putBoolean("nodata", cbDontAsk.isChecked).apply()
                                 startActivity(settings)
                             }
@@ -823,47 +811,21 @@ import kotlin.math.roundToInt
                     dialogDoze!!.show()
                 }
             } catch (ex: Throwable) {
-                Log.e(TAG, ex.toString() + "\n" + ex.getStackTrace())
+                Log.e(TAG, ex.toString() + "\n" + ex.stackTrace)
             }
         }
     }
 
     private fun menu_legend() {
-        val tv: TypedValue = TypedValue()
+        val tv = TypedValue()
         theme.resolveAttribute(R.attr.colorOn, tv, true)
-        val colorOn: Int = tv.data
+        tv.data
         theme.resolveAttribute(R.attr.colorOff, tv, true)
-        val colorOff: Int = tv.data
+        tv.data
 
         // Create view
         val inflater: LayoutInflater = LayoutInflater.from(this)
         val view: View = inflater.inflate(R.layout.legend, null, false)
-        val ivLockdownOn: ImageView = view.findViewById(R.id.ivLockdownOn)
-        val ivWifiOn: ImageView = view.findViewById(R.id.ivWifiOn)
-        val ivWifiOff: ImageView = view.findViewById(R.id.ivWifiOff)
-        val ivOtherOn: ImageView = view.findViewById(R.id.ivOtherOn)
-        val ivOtherOff: ImageView = view.findViewById(R.id.ivOtherOff)
-        val ivScreenOn: ImageView = view.findViewById(R.id.ivScreenOn)
-        val ivHostAllowed: ImageView = view.findViewById(R.id.ivHostAllowed)
-        val ivHostBlocked: ImageView = view.findViewById(R.id.ivHostBlocked)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrapLockdownOn: Drawable = DrawableCompat.wrap(ivLockdownOn.getDrawable())
-            val wrapWifiOn: Drawable = DrawableCompat.wrap(ivWifiOn.getDrawable())
-            val wrapWifiOff: Drawable = DrawableCompat.wrap(ivWifiOff.getDrawable())
-            val wrapOtherOn: Drawable = DrawableCompat.wrap(ivOtherOn.getDrawable())
-            val wrapOtherOff: Drawable = DrawableCompat.wrap(ivOtherOff.getDrawable())
-            val wrapScreenOn: Drawable = DrawableCompat.wrap(ivScreenOn.getDrawable())
-            val wrapHostAllowed: Drawable = DrawableCompat.wrap(ivHostAllowed.getDrawable())
-            val wrapHostBlocked: Drawable = DrawableCompat.wrap(ivHostBlocked.getDrawable())
-            DrawableCompat.setTint(wrapLockdownOn, colorOff)
-            DrawableCompat.setTint(wrapWifiOn, colorOn)
-            DrawableCompat.setTint(wrapWifiOff, colorOff)
-            DrawableCompat.setTint(wrapOtherOn, colorOn)
-            DrawableCompat.setTint(wrapOtherOff, colorOff)
-            DrawableCompat.setTint(wrapScreenOn, colorOn)
-            DrawableCompat.setTint(wrapHostAllowed, colorOn)
-            DrawableCompat.setTint(wrapHostBlocked, colorOff)
-        }
 
 
         // Show dialog
@@ -879,8 +841,8 @@ import kotlin.math.roundToInt
         item.isChecked = !item.isChecked
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         prefs.edit().putBoolean("lockdown", item.isChecked).apply()
-        ServiceSinkhole.Companion.reload("lockdown", this, false)
-        WidgetLockdown.Companion.updateWidgets(this)
+        ServiceSinkhole.reload("lockdown", this, false)
+        WidgetLockdown.updateWidgets(this)
     }
 
     private fun menu_about() {
@@ -906,7 +868,7 @@ import kotlin.math.roundToInt
         view.setOnClickListener(object : View.OnClickListener {
             private var tap: Short = 0
             private val toast: Toast = Toast.makeText(this@ActivityMain, "", Toast.LENGTH_SHORT)
-            public override fun onClick(view: View) {
+            override fun onClick(view: View) {
                 tap++
                 if (tap.toInt() == 7) {
                     tap = 0
@@ -921,7 +883,7 @@ import kotlin.math.roundToInt
         })
 
         // Handle rate
-        btnRate.setVisibility(if (getIntentRate(this).resolveActivity(packageManager) == null) View.GONE else View.VISIBLE)
+        btnRate.visibility = if (getIntentRate(this).resolveActivity(packageManager) == null) View.GONE else View.VISIBLE
         btnRate.setOnClickListener { startActivity(getIntentRate(this@ActivityMain)) }
 
         // Show dialog
@@ -938,51 +900,41 @@ import kotlin.math.roundToInt
     }
 
     private val intentLogcat: Intent
-        private get() {
-            val intent: Intent
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-                if (Util.isPackageInstalled("org.openintents.filemanager", this)) {
-                    intent = Intent("org.openintents.action.PICK_DIRECTORY")
-                } else {
-                    intent = Intent(Intent.ACTION_VIEW)
-                    intent.setData(Uri.parse("https://play.google.com/store/apps/details?id=org.openintents.filemanager"))
-                }
-            } else {
-                intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
-                intent.addCategory(Intent.CATEGORY_OPENABLE)
-                intent.setType("text/plain")
-                intent.putExtra(Intent.EXTRA_TITLE, "logcat.txt")
-            }
+        get() {
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+            intent.addCategory(Intent.CATEGORY_OPENABLE)
+            intent.type = "text/plain"
+            intent.putExtra(Intent.EXTRA_TITLE, "logcat.txt")
             return intent
         }
 
     companion object {
-        private val TAG: String = "NetGuard.Main"
-        private val REQUEST_VPN: Int = 1
-        private val REQUEST_INVITE: Int = 2
-        private val REQUEST_LOGCAT: Int = 3
-        val REQUEST_ROAMING: Int = 4
-        private val MIN_SDK: Int = Build.VERSION_CODES.LOLLIPOP_MR1
-        val ACTION_RULES_CHANGED: String = "eu.faircode.netguard.ACTION_RULES_CHANGED"
-        val ACTION_QUEUE_CHANGED: String = "eu.faircode.netguard.ACTION_QUEUE_CHANGED"
-        val EXTRA_REFRESH: String = "Refresh"
-        val EXTRA_SEARCH: String = "Search"
-        val EXTRA_RELATED: String = "Related"
-        val EXTRA_APPROVE: String = "Approve"
-        val EXTRA_LOGCAT: String = "Logcat"
-        val EXTRA_CONNECTED: String = "Connected"
-        val EXTRA_METERED: String = "Metered"
-        val EXTRA_SIZE: String = "Size"
+        private const val TAG: String = "NetGuard.Main"
+        private const val REQUEST_VPN: Int = 1
+        private const val REQUEST_INVITE: Int = 2
+        private const val REQUEST_LOGCAT: Int = 3
+        const val REQUEST_ROAMING: Int = 4
+        private const val MIN_SDK: Int = Build.VERSION_CODES.LOLLIPOP_MR1
+        const val ACTION_RULES_CHANGED: String = "eu.faircode.netguard.ACTION_RULES_CHANGED"
+        const val ACTION_QUEUE_CHANGED: String = "eu.faircode.netguard.ACTION_QUEUE_CHANGED"
+        const val EXTRA_REFRESH: String = "Refresh"
+        const val EXTRA_SEARCH: String = "Search"
+        const val EXTRA_RELATED: String = "Related"
+        const val EXTRA_APPROVE: String = "Approve"
+        const val EXTRA_LOGCAT: String = "Logcat"
+        const val EXTRA_CONNECTED: String = "Connected"
+        const val EXTRA_METERED: String = "Metered"
+        const val EXTRA_SIZE: String = "Size"
         private fun getIntentPro(context: Context): Intent {
-            if (Util.isPlayStoreInstall(context)) return Intent(context, ActivityPro::class.java) else {
-                val intent: Intent = Intent(Intent.ACTION_VIEW)
+            return if (Util.isPlayStoreInstall(context)) Intent(context, ActivityPro::class.java) else {
+                val intent = Intent(Intent.ACTION_VIEW)
                 intent.data = Uri.parse("https://contact.faircode.eu/?product=netguardstandalone")
-                return intent
+                intent
             }
         }
 
         private fun getIntentInvite(context: Context): Intent {
-            val intent: Intent = Intent(Intent.ACTION_SEND)
+            val intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
             intent.putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.app_name))
             intent.putExtra(Intent.EXTRA_TEXT, context.getString(R.string.msg_try) + "\n\nhttps://www.netguard.me/\n\n")
@@ -994,14 +946,14 @@ import kotlin.math.roundToInt
         }
 
         private fun getIntentRate(context: Context): Intent {
-            var intent: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + context.packageName))
+            var intent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + context.packageName))
             if (intent.resolveActivity(context.packageManager) == null) intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + context.packageName))
             return intent
         }
 
         private val intentSupport: Intent
-            private get() {
-                val intent: Intent = Intent(Intent.ACTION_VIEW)
+            get() {
+                val intent = Intent(Intent.ACTION_VIEW)
                 intent.data = Uri.parse("https://github.com/M66B/NetGuard/blob/master/FAQ.md")
                 return intent
             }
