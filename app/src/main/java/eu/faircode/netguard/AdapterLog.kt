@@ -1,22 +1,23 @@
 package eu.faircode.netguard
 
+import android.annotation.SuppressLint
 import android.content.*
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.database.Cursor
-import android.graphics.drawable.Drawable
 import android.net.*
-import android.os.AsyncTask
-import android.os.Build
 import android.os.Process
 import android.text.TextUtils
 import android.util.Log
 import android.util.TypedValue
 import android.view.*
 import android.widget.*
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.ViewCompat
 import androidx.preference.PreferenceManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.text.SimpleDateFormat
@@ -60,6 +61,8 @@ import java.text.SimpleDateFormat
     private var dns2: InetAddress? = null
     private var vpn4: InetAddress? = null
     private var vpn6: InetAddress? = null
+    val uiScope = CoroutineScope(Dispatchers.Main)
+
     fun setResolve(resolve: Boolean) {
         this.resolve = resolve
     }
@@ -68,11 +71,12 @@ import java.text.SimpleDateFormat
         this.organization = organization
     }
 
-    public override fun newView(context: Context, cursor: Cursor, parent: ViewGroup): View {
+    override fun newView(context: Context, cursor: Cursor, parent: ViewGroup): View {
         return LayoutInflater.from(context).inflate(R.layout.log, parent, false)
     }
 
-    public override fun bindView(view: View, context: Context, cursor: Cursor) {
+    @SuppressLint("SimpleDateFormat", "SetTextI18n")
+    override fun bindView(view: View, context: Context, cursor: Cursor) {
         // Get values
         val time: Long = cursor.getLong(colTime)
         val version: Int = (if (cursor.isNull(colVersion)) -1 else cursor.getInt(colVersion))
@@ -105,48 +109,40 @@ import java.text.SimpleDateFormat
         val ivInteractive: ImageView = view.findViewById(R.id.ivInteractive)
 
         // Show time
-        tvTime.setText(SimpleDateFormat("HH:mm:ss").format(time))
+        tvTime.text = SimpleDateFormat("HH:mm:ss").format(time)
 
         // Show connection type
         if (connection <= 0) ivConnection.setImageResource(if (allowed > 0) R.drawable.host_allowed else R.drawable.host_blocked) else {
             if (allowed > 0) ivConnection.setImageResource(if (connection == 1) R.drawable.wifi_on else R.drawable.other_on) else ivConnection.setImageResource(if (connection == 1) R.drawable.wifi_off else R.drawable.other_off)
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(ivConnection.getDrawable())
-            DrawableCompat.setTint(wrap, if (allowed > 0) colorOn else colorOff)
-        }
 
         // Show if screen on
         if (interactive <= 0) ivInteractive.setImageDrawable(null) else {
             ivInteractive.setImageResource(R.drawable.screen_on)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                val wrap: Drawable = DrawableCompat.wrap(ivInteractive.getDrawable())
-                DrawableCompat.setTint(wrap, colorOn)
-            }
         }
 
         // Show protocol name
-        tvProtocol.setText(Util.getProtocolName(protocol, version, false))
+        tvProtocol.text = Util.getProtocolName(protocol, version, false)
 
         // SHow TCP flags
-        tvFlags.setText(flags)
-        tvFlags.setVisibility(if (TextUtils.isEmpty(flags)) View.GONE else View.VISIBLE)
+        tvFlags.text = flags
+        tvFlags.visibility = if (TextUtils.isEmpty(flags)) View.GONE else View.VISIBLE
 
         // Show source and destination port
         if (protocol == 6 || protocol == 17) {
-            tvSPort.setText(if (sport < 0) "" else getKnownPort(sport))
-            tvDPort.setText(if (dport < 0) "" else getKnownPort(dport))
+            tvSPort.text = if (sport < 0) "" else getKnownPort(sport)
+            tvDPort.text = if (dport < 0) "" else getKnownPort(dport)
         } else {
-            tvSPort.setText(if (sport < 0) "" else Integer.toString(sport))
-            tvDPort.setText(if (dport < 0) "" else Integer.toString(dport))
+            tvSPort.text = if (sport < 0) "" else sport.toString()
+            tvDPort.text = if (dport < 0) "" else dport.toString()
         }
 
         // Application icon
         var info: ApplicationInfo? = null
-        val pm: PackageManager = context.getPackageManager()
+        val pm: PackageManager = context.packageManager
         val pkg: Array<String>? = pm.getPackagesForUid(uid)
-        if (pkg != null && pkg.size > 0) try {
-            info = pm.getApplicationInfo(pkg.get(0), 0)
+        if (pkg != null && pkg.isNotEmpty()) try {
+            info = pm.getApplicationInfo(pkg[0], 0)
         } catch (ignored: PackageManager.NameNotFoundException) {
         }
         if (info == null) ivIcon.setImageDrawable(null) else {
@@ -162,74 +158,76 @@ import java.text.SimpleDateFormat
         val we: Boolean = (Process.myUid() == uid)
 
         // https://android.googlesource.com/platform/system/core/+/master/include/private/android_filesystem_config.h
-        uid = uid % 100000 // strip off user ID
-        if (uid == -1) tvUid.setText("") else if (uid == 0) tvUid.setText(context.getString(R.string.title_root)) else if (uid == 9999) tvUid.setText("-") // nobody
-        else tvUid.setText(Integer.toString(uid))
+        uid %= 100000 // strip off user ID
+        when (uid) {
+            -1 -> tvUid.text = ""
+            0 -> tvUid.text = context.getString(R.string.title_root)
+            9999 -> tvUid.text = "-" // nobody
+            else -> tvUid.text = uid.toString()
+        }
 
         // Show source address
-        tvSAddr.setText(getKnownAddress(saddr))
+        tvSAddr.text = getKnownAddress(saddr)
 
         // Show destination address
         if (!we && resolve && !isKnownAddress(daddr)) if (dname == null) {
-            tvDaddr.setText(daddr)
-            object : AsyncTask<String?, Any?, String>() {
-                override fun onPreExecute() {
+            tvDaddr.text = daddr
+            uiScope.launch {
+                withContext(Dispatchers.Main) {
                     ViewCompat.setHasTransientState(tvDaddr, true)
-                }
+                    withContext(Dispatchers.Default) {
+                        try {
+                            val name = InetAddress.getByName(daddr).hostName
+                            withContext(Dispatchers.Main) {
+                                tvDaddr.text = ">$name"
+                                ViewCompat.setHasTransientState(tvDaddr, false)
+                            }
+                        } catch (_: UnknownHostException) {
+                            withContext(Dispatchers.Main) {
+                                tvDaddr.text = ">$daddr"
+                                ViewCompat.setHasTransientState(tvDaddr, false)
+                            }
+                        }
 
-                protected override fun doInBackground(vararg args: String): String {
-                    try {
-                        return InetAddress.getByName(args.get(0)).getHostName()
-                    } catch (ignored: UnknownHostException) {
-                        return args.get(0)
                     }
                 }
-
-                override fun onPostExecute(name: String) {
-                    tvDaddr.setText(">" + name)
-                    ViewCompat.setHasTransientState(tvDaddr, false)
-                }
-            }.execute(daddr)
-        } else tvDaddr.setText(dname) else tvDaddr.setText(getKnownAddress(daddr))
+            }
+        } else tvDaddr.text = dname else tvDaddr.text = getKnownAddress(daddr)
 
         // Show organization
-        tvOrganization.setVisibility(View.GONE)
+        tvOrganization.visibility = View.GONE
         if (!we && organization) {
-            if (!isKnownAddress(daddr)) object : AsyncTask<String?, Any?, String?>() {
-                override fun onPreExecute() {
+            if (!isKnownAddress(daddr)) uiScope.launch {
+                withContext(Dispatchers.Main) {
                     ViewCompat.setHasTransientState(tvOrganization, true)
-                }
-
-                protected override fun doInBackground(vararg args: String): String? {
-                    try {
-                        return Util.getOrganization(args.get(0))
-                    } catch (ex: Throwable) {
-                        Log.w(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-                        return null
+                    withContext(Dispatchers.Default) {
+                        try {
+                            val organization = Util.getOrganization(daddr)
+                            withContext(Dispatchers.Main) {
+                                tvOrganization.text = organization
+                                tvOrganization.visibility = View.VISIBLE
+                                ViewCompat.setHasTransientState(tvOrganization, false)
+                            }
+                        } catch (ex: Throwable) {
+                            Log.w(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                            ViewCompat.setHasTransientState(tvOrganization, false)
+                        }
                     }
                 }
-
-                override fun onPostExecute(organization: String?) {
-                    if (organization != null) {
-                        tvOrganization.setText(organization)
-                        tvOrganization.setVisibility(View.VISIBLE)
-                    }
-                    ViewCompat.setHasTransientState(tvOrganization, false)
-                }
-            }.execute(daddr)
+            }
         }
 
         // Show extra data
         if (TextUtils.isEmpty(data)) {
-            tvData.setText("")
-            tvData.setVisibility(View.GONE)
+            tvData.text = ""
+            tvData.visibility = View.GONE
         } else {
-            tvData.setText(data)
-            tvData.setVisibility(View.VISIBLE)
+            tvData.text = data
+            tvData.visibility = View.VISIBLE
         }
     }
 
-    fun isKnownAddress(addr: String?): Boolean {
+    private fun isKnownAddress(addr: String?): Boolean {
         try {
             val a: InetAddress = InetAddress.getByName(addr)
             if ((a == dns1) || (a == dns2) || (a == vpn4) || (a == vpn6)) return true
@@ -251,36 +249,36 @@ import java.text.SimpleDateFormat
 
     private fun getKnownPort(port: Int): String {
         // https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers#Well-known_ports
-        when (port) {
-            7 -> return "echo"
-            25 -> return "smtp"
-            53 -> return "dns"
-            80 -> return "http"
-            110 -> return "pop3"
-            143 -> return "imap"
-            443 -> return "https"
-            465 -> return "smtps"
-            993 -> return "imaps"
-            995 -> return "pop3s"
-            else -> return Integer.toString(port)
+        return when (port) {
+            7 -> "echo"
+            25 -> "smtp"
+            53 -> "dns"
+            80 -> "http"
+            110 -> "pop3"
+            143 -> "imap"
+            443 -> "https"
+            465 -> "smtps"
+            993 -> "imaps"
+            995 -> "pop3s"
+            else -> port.toString()
         }
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Log"
+        private const val TAG: String = "NetGuard.Log"
     }
 
     init {
-        val tv: TypedValue = TypedValue()
-        context.getTheme().resolveAttribute(R.attr.colorOn, tv, true)
+        val tv = TypedValue()
+        context.theme.resolveAttribute(R.attr.colorOn, tv, true)
         colorOn = tv.data
-        context.getTheme().resolveAttribute(R.attr.colorOff, tv, true)
+        context.theme.resolveAttribute(R.attr.colorOff, tv, true)
         colorOff = tv.data
         iconSize = Util.dips2pixels(24, context)
         try {
-            val lstDns: List<InetAddress?> = ServiceSinkhole.Companion.getDns(context)
-            dns1 = (if (lstDns.size > 0) lstDns.get(0) else null)
-            dns2 = (if (lstDns.size > 1) lstDns.get(1) else null)
+            val lstDns: List<InetAddress?> = ServiceSinkhole.getDns(context)
+            dns1 = (if (lstDns.isNotEmpty()) lstDns[0] else null)
+            dns2 = (if (lstDns.size > 1) lstDns[1] else null)
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
             vpn4 = InetAddress.getByName(prefs.getString("vpn4", "10.1.10.1"))
             vpn6 = InetAddress.getByName(prefs.getString("vpn6", "fd00:1:fd00:1:fd00:1:fd00:1"))

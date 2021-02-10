@@ -3,7 +3,6 @@ package eu.faircode.netguard
 import android.app.Activity
 import android.app.PendingIntent
 import android.content.*
-import android.os.AsyncTask
 import android.os.Build
 import android.os.PowerManager
 import android.os.PowerManager.WakeLock
@@ -12,6 +11,11 @@ import android.util.TypedValue
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.NonCancellable.isActive
+import kotlinx.coroutines.NonCancellable.isCancelled
+import kotlinx.coroutines.withContext
 import java.io.*
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,29 +38,44 @@ import java.net.URLConnection
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class DownloadTask constructor(context: Activity, url: URL, file: File, listener: Listener) : AsyncTask<Any?, Int?, Any?>() {
+*/   open class DownloadTask constructor(context: Activity, url: URL, file: File, listener: Listener) {
     private val context: Context
     private val url: URL
     private val file: File
     private val listener: Listener
     private var wakeLock: WakeLock? = null
+    private var progress = 0
 
-    open interface Listener {
-        fun onCompleted()
-        fun onCancelled()
-        fun onException(ex: Throwable)
+    interface Listener {
+        suspend fun onCompleted()
+        suspend fun onCancelled()
+        suspend fun onException(ex: Throwable)
     }
 
-    override fun onPreExecute() {
+    @InternalCoroutinesApi
+    suspend fun beginDownload(vararg args: Any){
+        withContext(Dispatchers.Main){
+            onPreExecute()
+            withContext(Dispatchers.IO){
+                var res = doInBackground()
+                withContext(Dispatchers.Main){
+                    onPostExecute(res)
+                }
+            }
+        }
+    }
+
+    suspend fun onPreExecute() {
         val pm: PowerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, javaClass.getName())
-        wakeLock.acquire()
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, javaClass.name)
+        wakeLock!!.acquire(10*60*1000L /*10 minutes*/)
         showNotification(0)
         Toast.makeText(context, context.getString(R.string.msg_downloading, url.toString()), Toast.LENGTH_SHORT).show()
     }
 
-    protected override fun doInBackground(vararg args: Any): Any? {
-        Log.i(TAG, "Downloading " + url + " into " + file)
+    @InternalCoroutinesApi
+    protected suspend fun doInBackground(): Any? {
+        Log.i(TAG, "Downloading $url into $file")
         var `in`: InputStream? = null
         var out: OutputStream? = null
         var connection: URLConnection? = null
@@ -65,32 +84,37 @@ import java.net.URLConnection
             connection.connect()
             if (connection is HttpURLConnection) {
                 val httpConnection: HttpURLConnection = connection
-                if (httpConnection.getResponseCode() != HttpURLConnection.HTTP_OK) throw IOException(httpConnection.getResponseCode().toString() + " " + httpConnection.getResponseMessage())
+                if (httpConnection.responseCode != HttpURLConnection.HTTP_OK) throw IOException(httpConnection.responseCode.toString() + " " + httpConnection.responseMessage)
             }
-            val contentLength: Int = connection.getContentLength()
-            Log.i(TAG, "Content length=" + contentLength)
+            val contentLength: Int = connection.contentLength
+            Log.i(TAG, "Content length=$contentLength")
             `in` = connection.getInputStream()
             out = FileOutputStream(file)
             var size: Long = 0
-            val buffer: ByteArray = ByteArray(4096)
+            val buffer = ByteArray(4096)
             var bytes: Int
-            while (!isCancelled() && (`in`.read(buffer).also({ bytes = it })) != -1) {
-                out.write(buffer, 0, bytes)
-                size += bytes.toLong()
-                if (contentLength > 0) publishProgress((size * 100 / contentLength).toInt())
-            }
-            Log.i(TAG, "Downloaded size=" + size)
+            while (!isCancelled && `in`.read(buffer).let { bytes = it
+                    if(bytes != -1) {
+                        out.write(buffer, 0, bytes)
+                        size += bytes.toLong()
+                        if (contentLength > 0) {
+                            onProgressUpdate((size * 100 / contentLength).toInt())
+                        }
+                    }
+                    return bytes
+            } != -1);
+            Log.i(TAG, "Downloaded size=$size")
             return null
         } catch (ex: Throwable) {
             return ex
         } finally {
             try {
-                if (out != null) out.close()
+                out?.close()
             } catch (ex: IOException) {
                 Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
             }
             try {
-                if (`in` != null) `in`.close()
+                `in`?.close()
             } catch (ex: IOException) {
                 Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
             }
@@ -98,18 +122,16 @@ import java.net.URLConnection
         }
     }
 
-    protected override fun onProgressUpdate(vararg progress: Int) {
-        super.onProgressUpdate(*progress)
-        showNotification(progress.get(0))
+    protected suspend fun onProgressUpdate(vararg progress: Int) {
+        showNotification(progress[0])
     }
 
-    override fun onCancelled() {
-        super.onCancelled()
+    suspend fun onCancelled() {
         Log.i(TAG, "Cancelled")
         listener.onCancelled()
     }
 
-    override fun onPostExecute(result: Any?) {
+    private suspend fun onPostExecute(result: Any?) {
         wakeLock!!.release()
         NotificationManagerCompat.from(context).cancel(ServiceSinkhole.Companion.NOTIFY_DOWNLOAD)
         if (result is Throwable) {
@@ -118,11 +140,11 @@ import java.net.URLConnection
         } else listener.onCompleted()
     }
 
-    private fun showNotification(progress: Int) {
+    private suspend fun showNotification(progress: Int) {
         val main: Intent = Intent(context, ActivitySettings::class.java)
         val pi: PendingIntent = PendingIntent.getActivity(context, ServiceSinkhole.Companion.NOTIFY_DOWNLOAD, main, PendingIntent.FLAG_UPDATE_CURRENT)
         val tv: TypedValue = TypedValue()
-        context.getTheme().resolveAttribute(R.attr.colorOff, tv, true)
+        context.theme.resolveAttribute(R.attr.colorOff, tv, true)
         val builder: NotificationCompat.Builder = NotificationCompat.Builder(context, "notify")
         builder.setSmallIcon(R.drawable.ic_file_download_white_24dp)
                 .setContentTitle(context.getString(R.string.app_name))
@@ -132,13 +154,13 @@ import java.net.URLConnection
                 .setColor(tv.data)
                 .setOngoing(true)
                 .setAutoCancel(false)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) builder.setCategory(NotificationCompat.CATEGORY_STATUS)
+        builder.setCategory(NotificationCompat.CATEGORY_STATUS)
                 .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-        NotificationManagerCompat.from(context).notify(ServiceSinkhole.Companion.NOTIFY_DOWNLOAD, builder.build())
+        NotificationManagerCompat.from(context).notify(ServiceSinkhole.NOTIFY_DOWNLOAD, builder.build())
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Download"
+        private const val TAG: String = "NetGuard.Download"
     }
 
     init {

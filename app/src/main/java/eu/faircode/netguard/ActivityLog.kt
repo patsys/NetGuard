@@ -190,7 +190,7 @@ import java.util.*
                 packet.allowed = (allowed > 0)
 
                 // Time
-                popup.getMenu().findItem(R.id.menu_time).title = SimpleDateFormat.getDateTimeInstance().format(time)
+                popup.menu.findItem(R.id.menu_time).title = SimpleDateFormat.getDateTimeInstance().format(time)
 
                 // Handle click
                 popup.setOnMenuItemClickListener(object : PopupMenu.OnMenuItemClickListener {
@@ -280,7 +280,7 @@ import java.util.*
 
             // Check switch state
             val swEnabled: SwitchCompat = this.supportActionBar!!.customView.findViewById(R.id.swEnabled)
-            if (swEnabled.isChecked() != log) swEnabled.isChecked = log
+            if (swEnabled.isChecked != log) swEnabled.isChecked = log
             ServiceSinkhole.reload("changed $name", this@ActivityLog, false)
         }
     }
@@ -312,7 +312,7 @@ import java.util.*
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
 
         // https://gist.github.com/granoeste/5574148
-        val pcap_file: File = File(getDir("data", MODE_PRIVATE), "netguard.pcap")
+        val pcap_file = File(getDir("data", MODE_PRIVATE), "netguard.pcap")
         val export: Boolean = (packageManager.resolveActivity(intentPCAPDocument, 0) != null)
         menu.findItem(R.id.menu_protocol_udp).isChecked = prefs.getBoolean("proto_udp", true)
         menu.findItem(R.id.menu_protocol_tcp).isChecked = prefs.getBoolean("proto_tcp", true)
@@ -328,7 +328,7 @@ import java.util.*
         return super.onPrepareOptionsMenu(menu)
     }
 
-    public override fun onOptionsItemSelected(item: MenuItem): Boolean {
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         val pcap_file: File = File(getDir("data", MODE_PRIVATE), "netguard.pcap")
         when (item.itemId) {
@@ -417,6 +417,7 @@ import java.util.*
             }
             else -> return super.onOptionsItemSelected(item)
         }
+        return false
     }
 
     private fun updateAdapter() {
@@ -471,16 +472,16 @@ import java.util.*
                 var `in`: FileInputStream? = null
                 try {
                     // Stop capture
-                    ServiceSinkhole.Companion.setPcap(false, this@ActivityLog)
+                    ServiceSinkhole.setPcap(false, this@ActivityLog)
                     var target: Uri? = data.data
                     if (data.hasExtra("org.openintents.extra.DIR_PATH")) target = Uri.parse(target.toString() + "/netguard.pcap")
                     Log.i(TAG, "Export PCAP URI=$target")
                     out = contentResolver.openOutputStream((target)!!)
-                    val pcap: File = File(getDir("data", MODE_PRIVATE), "netguard.pcap")
+                    val pcap = File(getDir("data", MODE_PRIVATE), "netguard.pcap")
                     `in` = FileInputStream(pcap)
                     var len: Int
                     var total: Long = 0
-                    val buf: ByteArray = ByteArray(4096)
+                    val buf = ByteArray(4096)
                     while ((`in`.read(buf).also { len = it }) > 0) {
                         out!!.write(buf, 0, len)
                         total += len.toLong()
@@ -508,7 +509,7 @@ import java.util.*
 
                     // Resume capture
                     val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this@ActivityLog)
-                    if (prefs.getBoolean("pcap", false)) ServiceSinkhole.Companion.setPcap(true, this@ActivityLog)
+                    if (prefs.getBoolean("pcap", false)) ServiceSinkhole.setPcap(true, this@ActivityLog)
                 }
             }
         }

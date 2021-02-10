@@ -25,23 +25,23 @@ import androidx.preference.PreferenceManager
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class WidgetLockdown constructor() : AppWidgetProvider() {
-    public override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+*/   class WidgetLockdown : AppWidgetProvider() {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         update(appWidgetIds, appWidgetManager, context)
     }
 
     companion object {
-        private val TAG: String = "NetGuard.WidgetLock"
+        private const val TAG: String = "NetGuard.WidgetLock"
         private fun update(appWidgetIds: IntArray, appWidgetManager: AppWidgetManager, context: Context) {
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
             val lockdown: Boolean = prefs.getBoolean("lockdown", false)
             try {
                 try {
-                    val intent: Intent = Intent(if (lockdown) WidgetAdmin.Companion.INTENT_LOCKDOWN_OFF else WidgetAdmin.Companion.INTENT_LOCKDOWN_ON)
-                    intent.setPackage(context.getPackageName())
+                    val intent = Intent(if (lockdown) WidgetAdmin.INTENT_LOCKDOWN_OFF else WidgetAdmin.INTENT_LOCKDOWN_ON)
+                    intent.setPackage(context.packageName)
                     val pi: PendingIntent = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
                     for (id: Int in appWidgetIds) {
-                        val views: RemoteViews = RemoteViews(context.getPackageName(), R.layout.widgetlockdown)
+                        val views = RemoteViews(context.packageName, R.layout.widgetlockdown)
                         views.setOnClickPendingIntent(R.id.ivEnabled, pi)
                         views.setImageViewResource(R.id.ivEnabled, if (lockdown) R.drawable.ic_lock_outline_white_24dp else R.drawable.ic_lock_open_white_24dp)
                         appWidgetManager.updateAppWidget(id, views)

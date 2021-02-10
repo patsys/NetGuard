@@ -30,57 +30,57 @@ import java.util.*
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   class ServiceExternal  // am startservice -a eu.faircode.netguard.DOWNLOAD_HOSTS_FILE
-constructor() : IntentService(TAG) {
+    : IntentService(TAG) {
     override fun onHandleIntent(intent: Intent?) {
         try {
-            startForeground(ServiceSinkhole.Companion.NOTIFY_EXTERNAL, getForegroundNotification(this))
-            Log.i(TAG, "Received " + intent)
+            startForeground(ServiceSinkhole.NOTIFY_EXTERNAL, getForegroundNotification(this))
+            Log.i(TAG, "Received $intent")
             Util.logExtras(intent)
-            if ((ACTION_DOWNLOAD_HOSTS_FILE == intent!!.getAction())) {
+            if ((ACTION_DOWNLOAD_HOSTS_FILE == intent!!.action)) {
                 val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
                 var hosts_url: String? = prefs.getString("hosts_url", null)
                 if (("https://www.netguard.me/hosts" == hosts_url)) hosts_url = BuildConfig.HOSTS_FILE_URI
-                val tmp: File = File(getFilesDir(), "hosts.tmp")
-                val hosts: File = File(getFilesDir(), "hosts.txt")
+                val tmp = File(filesDir, "hosts.tmp")
+                val hosts = File(filesDir, "hosts.txt")
                 var `in`: InputStream? = null
                 var out: OutputStream? = null
                 var connection: URLConnection? = null
                 try {
-                    val url: URL = URL(hosts_url)
+                    val url = URL(hosts_url)
                     connection = url.openConnection()
                     connection.connect()
                     if (connection is HttpURLConnection) {
                         val httpConnection: HttpURLConnection = connection
-                        if (httpConnection.getResponseCode() != HttpURLConnection.HTTP_OK) throw IOException(httpConnection.getResponseCode().toString() + " " + httpConnection.getResponseMessage())
+                        if (httpConnection.responseCode != HttpURLConnection.HTTP_OK) throw IOException(httpConnection.responseCode.toString() + " " + httpConnection.responseMessage)
                     }
-                    val contentLength: Int = connection.getContentLength()
-                    Log.i(TAG, "Content length=" + contentLength)
+                    val contentLength: Int = connection.contentLength
+                    Log.i(TAG, "Content length=$contentLength")
                     `in` = connection.getInputStream()
                     out = FileOutputStream(tmp)
                     var size: Long = 0
-                    val buffer: ByteArray = ByteArray(4096)
+                    val buffer = ByteArray(4096)
                     var bytes: Int
-                    while ((`in`.read(buffer).also({ bytes = it })) != -1) {
+                    while ((`in`.read(buffer).also { bytes = it }) != -1) {
                         out.write(buffer, 0, bytes)
                         size += bytes.toLong()
                     }
-                    Log.i(TAG, "Downloaded size=" + size)
+                    Log.i(TAG, "Downloaded size=$size")
                     if (hosts.exists()) hosts.delete()
                     tmp.renameTo(hosts)
-                    val last: String = SimpleDateFormat.getDateTimeInstance().format(Date().getTime())
+                    val last: String = SimpleDateFormat.getDateTimeInstance().format(Date().time)
                     prefs.edit().putString("hosts_last_download", last).apply()
-                    ServiceSinkhole.Companion.reload("hosts file download", this, false)
+                    ServiceSinkhole.reload("hosts file download", this, false)
                 } catch (ex: Throwable) {
                     Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                     if (tmp.exists()) tmp.delete()
                 } finally {
                     try {
-                        if (out != null) out.close()
+                        out?.close()
                     } catch (ex: IOException) {
                         Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                     }
                     try {
-                        if (`in` != null) `in`.close()
+                        `in`?.close()
                     } catch (ex: IOException) {
                         Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                     }
@@ -93,12 +93,12 @@ constructor() : IntentService(TAG) {
     }
 
     companion object {
-        private val TAG: String = "NetGuard.External"
-        private val ACTION_DOWNLOAD_HOSTS_FILE: String = "eu.faircode.netguard.DOWNLOAD_HOSTS_FILE"
+        private const val TAG: String = "NetGuard.External"
+        private const val ACTION_DOWNLOAD_HOSTS_FILE: String = "eu.faircode.netguard.DOWNLOAD_HOSTS_FILE"
         private fun getForegroundNotification(context: Context): Notification {
             val builder: NotificationCompat.Builder = NotificationCompat.Builder(context, "foreground")
             builder.setSmallIcon(R.drawable.ic_hourglass_empty_white_24dp)
-            builder.setPriority(NotificationCompat.PRIORITY_MIN)
+            builder.priority = NotificationCompat.PRIORITY_MIN
             builder.setCategory(NotificationCompat.CATEGORY_STATUS)
             builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             builder.setContentTitle(context.getString(R.string.app_name))

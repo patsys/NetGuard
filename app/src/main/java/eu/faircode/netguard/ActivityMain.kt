@@ -32,7 +32,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import eu.faircode.netguard.DatabaseHelper.AccessChangedListener
-import eu.faircode.netguardimport.ReceiverAutostart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,7 +85,7 @@ import kotlin.math.roundToInt
         }
 
         // Check for Xposed
-        if (Util.hasXposed(this)) {
+        if (Util.hasXposed()) {
             Log.i(TAG, "Xposed running")
             super.onCreate(savedInstanceState)
             setContentView(R.layout.xposed)
@@ -349,7 +348,7 @@ import kotlin.math.roundToInt
         Log.i(TAG, "New intent")
         Util.logExtras(intent)
         super.onNewIntent(intent)
-        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) return
+        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed()) return
         setIntent(intent)
         if (Build.VERSION.SDK_INT >= MIN_SDK) {
             if (intent.hasExtra(EXTRA_REFRESH)) updateApplicationList(intent.getStringExtra(EXTRA_SEARCH)) else updateSearch(intent.getStringExtra(EXTRA_SEARCH))
@@ -359,7 +358,7 @@ import kotlin.math.roundToInt
 
     override fun onResume() {
         Log.i(TAG, "Resume")
-        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) {
+        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed()) {
             super.onResume()
             return
         }
@@ -374,19 +373,19 @@ import kotlin.math.roundToInt
     override fun onPause() {
         Log.i(TAG, "Pause")
         super.onPause()
-        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) return
+        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed()) return
         DatabaseHelper.getInstance(this).removeAccessChangedListener(accessChangedListener)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         Log.i(TAG, "Config")
         super.onConfigurationChanged(newConfig)
-        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) return
+        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed()) return
     }
 
     public override fun onDestroy() {
         Log.i(TAG, "Destroy")
-        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed(this)) {
+        if (Build.VERSION.SDK_INT < MIN_SDK || Util.hasXposed()) {
             super.onDestroy()
             return
         }
@@ -641,7 +640,7 @@ import kotlin.math.roundToInt
                 return true
             }
             R.id.menu_log -> {
-                if (Util.canFilter(this)) if (IAB.isPurchased(ActivityPro.SKU_LOG, this)) startActivity(Intent(this, ActivityLog::class.java)) else startActivity(Intent(this, ActivityPro::class.java)) else Toast.makeText(this, R.string.msg_unavailable, Toast.LENGTH_SHORT).show()
+                if (Util.canFilter()) if (IAB.isPurchased(ActivityPro.SKU_LOG, this)) startActivity(Intent(this, ActivityLog::class.java)) else startActivity(Intent(this, ActivityPro::class.java)) else Toast.makeText(this, R.string.msg_unavailable, Toast.LENGTH_SHORT).show()
                 return true
             }
             R.id.menu_settings -> {

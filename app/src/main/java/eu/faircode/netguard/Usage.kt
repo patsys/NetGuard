@@ -21,7 +21,7 @@ import java.util.*
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class Usage constructor() {
+*/   class Usage {
     var Time: Long = 0
     var Version: Int = 0
     var Protocol: Int = 0
@@ -30,8 +30,8 @@ import java.util.*
     var Uid: Int = 0
     var Sent: Long = 0
     var Received: Long = 0
-    public override fun toString(): String {
-        return (formatter.format(Date(Time).getTime()) +
+    override fun toString(): String {
+        return (formatter.format(Date(Time).time) +
                 " v" + Version + " p" + Protocol +
                 " " + DAddr + "/" + DPort +
                 " uid " + Uid +

@@ -329,7 +329,7 @@ import java.util.*
         val tvDev2: TextView = findViewById(R.id.tvDev2)
         val tvLogUnavailable: TextView = findViewById(R.id.tvLogUnavailable)
         val tvFilterUnavailable: TextView = findViewById(R.id.tvFilterUnavailable)
-        val can: Boolean = Util.canFilter(this)
+        val can: Boolean = Util.canFilter()
         btnLog.visibility = if (IAB.isPurchased(SKU_LOG, this) || !can) View.GONE else View.VISIBLE
         btnFilter.visibility = if (IAB.isPurchased(SKU_FILTER, this) || !can) View.GONE else View.VISIBLE
         btnNotify.visibility = if (IAB.isPurchased(SKU_NOTIFY, this)) View.GONE else View.VISIBLE

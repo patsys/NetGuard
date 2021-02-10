@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.os.Build
 import android.os.Process
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceManager
 import org.xmlpull.v1.XmlPullParser
 import java.text.Collator
@@ -30,11 +31,11 @@ import java.util.*
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   class Rule private constructor(dh: DatabaseHelper?, info: PackageInfo, context: Context) {
-    var uid: Int
-    var packageName: String
-    var icon: Int
+    var uid: Int = info.applicationInfo.uid
+    var packageName: String = info.packageName
+    var icon: Int = info.applicationInfo.icon
     var name: String? = null
-    var version: String
+    var version: String = info.versionName
     var system = false
     var internet = false
     var enabled = false
@@ -126,10 +127,11 @@ import java.util.*
                 cacheInternet.clear()
                 cacheEnabled.clear()
             }
-            val dh: DatabaseHelper = DatabaseHelper.Companion.getInstance(context)
+            val dh: DatabaseHelper = DatabaseHelper.getInstance(context)
             dh.clearApps()
         }
 
+        @RequiresApi(Build.VERSION_CODES.N)
         fun getRules(all: Boolean, context: Context): List<Rule?> {
             synchronized(context.applicationContext) {
                 val prefs = PreferenceManager.getDefaultSharedPreferences(context)
@@ -167,24 +169,29 @@ import java.util.*
                     val xml = context.resources.getXml(R.xml.predefined)
                     var eventType = xml.eventType
                     while (eventType != XmlPullParser.END_DOCUMENT) {
-                        if (eventType == XmlPullParser.START_TAG) if (("wifi" == xml.name)) {
-                            val pkg = xml.getAttributeValue(null, "package")
-                            val pblocked = xml.getAttributeBooleanValue(null, "blocked", false)
-                            pre_wifi_blocked[pkg] = pblocked
-                        } else if (("other" == xml.name)) {
-                            val pkg = xml.getAttributeValue(null, "package")
-                            val pblocked = xml.getAttributeBooleanValue(null, "blocked", false)
-                            val proaming = xml.getAttributeBooleanValue(null, "roaming", default_roaming)
-                            pre_other_blocked[pkg] = pblocked
-                            pre_roaming[pkg] = proaming
-                        } else if (("relation" == xml.name)) {
-                            val pkg = xml.getAttributeValue(null, "package")
-                            val rel = xml.getAttributeValue(null, "related").split(",").toTypedArray()
-                            pre_related[pkg] = rel
-                        } else if (("type" == xml.name)) {
-                            val pkg = xml.getAttributeValue(null, "package")
-                            val system = xml.getAttributeBooleanValue(null, "system", true)
-                            pre_system[pkg] = system
+                        if (eventType == XmlPullParser.START_TAG) when (xml.name) {
+                            "wifi" -> {
+                                val pkg = xml.getAttributeValue(null, "package")
+                                val pblocked = xml.getAttributeBooleanValue(null, "blocked", false)
+                                pre_wifi_blocked[pkg] = pblocked
+                            }
+                            "other" -> {
+                                val pkg = xml.getAttributeValue(null, "package")
+                                val pblocked = xml.getAttributeBooleanValue(null, "blocked", false)
+                                val proaming = xml.getAttributeBooleanValue(null, "roaming", default_roaming)
+                                pre_other_blocked[pkg] = pblocked
+                                pre_roaming[pkg] = proaming
+                            }
+                            "relation" -> {
+                                val pkg = xml.getAttributeValue(null, "package")
+                                val rel = xml.getAttributeValue(null, "related").split(",").toTypedArray()
+                                pre_related[pkg] = rel
+                            }
+                            "type" -> {
+                                val pkg = xml.getAttributeValue(null, "package")
+                                val system = xml.getAttributeBooleanValue(null, "system", true)
+                                pre_system[pkg] = system
+                            }
                         }
                         eventType = xml.next()
                     }
@@ -256,7 +263,7 @@ import java.util.*
                 nobody.applicationInfo.uid = 9999
                 nobody.applicationInfo.icon = 0
                 listPI.add(nobody)
-                val dh: DatabaseHelper = DatabaseHelper.Companion.getInstance(context)
+                val dh: DatabaseHelper = DatabaseHelper.getInstance(context)
                 for (info: PackageInfo in listPI) try {
                     // Skip self
                     if (info.applicationInfo.uid == Process.myUid()) continue
@@ -283,7 +290,7 @@ import java.util.*
 
                         // Related packages
                         val listPkg: MutableList<String> = ArrayList()
-                        if (pre_related.containsKey(info.packageName)) listPkg.addAll(Arrays.asList(*pre_related[info.packageName]))
+                        if (pre_related.containsKey(info.packageName)) listPkg.addAll(arrayListOf(pre_related[info.packageName].toString()))
                         for (pi: PackageInfo in listPI) if (pi.applicationInfo.uid == rule.uid && pi.packageName != rule.packageName) {
                             rule.relateduids = true
                             listPkg.add(pi.packageName)
@@ -301,84 +308,90 @@ import java.util.*
                 val collator = Collator.getInstance(Locale.getDefault())
                 collator.strength = Collator.SECONDARY // Case insensitive, process accents etc
                 val sort = prefs.getString("sort", "name")
-                if (("uid" == sort)) Collections.sort(listRules, Comparator { rule, other ->
-                    if (rule.uid < other.uid) -1 else if (rule.uid > other.uid) 1 else {
-                        val i = collator.compare(rule.name, other.name)
-                        (if (i == 0) rule.packageName.compareTo(other.packageName) else i)
-                    }
-                }) else Collections.sort(listRules, object : Comparator<Rule> {
-                    override fun compare(rule: Rule, other: Rule): Int {
-                        if (all || rule.changed == other.changed) {
+                if (("uid" == sort)) listRules.sortWith { rule, other ->
+                    when {
+                        rule!!.uid < other?.uid!! -> -1
+                        rule.uid > other.uid -> 1
+                        else -> {
                             val i = collator.compare(rule.name, other.name)
-                            return (if (i == 0) rule.packageName.compareTo(other.packageName) else i)
+                            (if (i == 0) rule.packageName.compareTo(other.packageName) else i)
                         }
-                        return (if (rule.changed) -1 else 1)
                     }
-                })
+                } else listRules.sortWith { rule, other ->
+                    if (all || rule!!.changed == other!!.changed) {
+                        val i = collator.compare(rule!!.name, other!!.name)
+                        return@sortWith (if (i == 0) rule.packageName.compareTo(other.packageName) else i)
+                    }
+                    return@sortWith (if (rule.changed) -1 else 1)
+                }
                 return listRules
             }
         }
     }
 
     init {
-        uid = info.applicationInfo.uid
-        packageName = info.packageName
-        icon = info.applicationInfo.icon
-        version = info.versionName
-        if (info.applicationInfo.uid == 0) {
-            name = context.getString(R.string.title_root)
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else if (info.applicationInfo.uid == 1013) {
-            name = context.getString(R.string.title_mediaserver)
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else if (info.applicationInfo.uid == 1020) {
-            name = "MulticastDNSResponder"
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else if (info.applicationInfo.uid == 1021) {
-            name = context.getString(R.string.title_gpsdaemon)
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else if (info.applicationInfo.uid == 1051) {
-            name = context.getString(R.string.title_dnsdaemon)
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else if (info.applicationInfo.uid == 9999) {
-            name = context.getString(R.string.title_nobody)
-            system = true
-            internet = true
-            enabled = true
-            pkg = false
-        } else {
-            var cursor: Cursor? = null
-            try {
-                cursor = dh!!.getApp(packageName)
-                if (cursor.moveToNext()) {
-                    name = cursor.getString(cursor.getColumnIndex("label"))
-                    system = cursor.getInt(cursor.getColumnIndex("system")) > 0
-                    internet = cursor.getInt(cursor.getColumnIndex("internet")) > 0
-                    enabled = cursor.getInt(cursor.getColumnIndex("enabled")) > 0
-                } else {
-                    name = getLabel(info, context)
-                    system = isSystem(info.packageName, context)
-                    internet = hasInternet(info.packageName, context)
-                    enabled = isEnabled(info, context)
-                    dh.addApp(packageName, name, system, internet, enabled)
+        when (info.applicationInfo.uid) {
+            0 -> {
+                name = context.getString(R.string.title_root)
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            1013 -> {
+                name = context.getString(R.string.title_mediaserver)
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            1020 -> {
+                name = "MulticastDNSResponder"
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            1021 -> {
+                name = context.getString(R.string.title_gpsdaemon)
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            1051 -> {
+                name = context.getString(R.string.title_dnsdaemon)
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            9999 -> {
+                name = context.getString(R.string.title_nobody)
+                system = true
+                internet = true
+                enabled = true
+                pkg = false
+            }
+            else -> {
+                var cursor: Cursor? = null
+                try {
+                    cursor = dh!!.getApp(packageName)
+                    if (cursor.moveToNext()) {
+                        name = cursor.getString(cursor.getColumnIndex("label"))
+                        system = cursor.getInt(cursor.getColumnIndex("system")) > 0
+                        internet = cursor.getInt(cursor.getColumnIndex("internet")) > 0
+                        enabled = cursor.getInt(cursor.getColumnIndex("enabled")) > 0
+                    } else {
+                        name = getLabel(info, context)
+                        system = isSystem(info.packageName, context)
+                        internet = hasInternet(info.packageName, context)
+                        enabled = isEnabled(info, context)
+                        dh.addApp(packageName, name, system, internet, enabled)
+                    }
+                } finally {
+                    cursor?.close()
                 }
-            } finally {
-                cursor?.close()
             }
         }
     }

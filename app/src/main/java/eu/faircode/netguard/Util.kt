@@ -1,6 +1,7 @@
 package eu.faircode.netguard
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.annotation.TargetApi
 import android.app.Activity
 import android.app.ActivityManager.TaskDescription
@@ -23,9 +24,14 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.*
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.core.net.ConnectivityManagerCompat
 import androidx.preference.PreferenceManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.*
 import java.net.*
 import java.security.MessageDigest
@@ -34,6 +40,9 @@ import java.text.DateFormat
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.experimental.and
+import kotlin.math.roundToInt
+import kotlin.system.exitProcess
 
 /*
    This file is part of NetGuard.
@@ -53,10 +62,10 @@ import java.util.*
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   object Util {
-    private val TAG: String = "NetGuard.Util"
+    private const val TAG: String = "NetGuard.Util"
 
     // Roam like at home
-    private val listEU: List<String> = Arrays.asList(
+    private val listEU: List<String> = listOf(
             "AT",  // Austria
             "BE",  // Belgium
             "BG",  // Bulgaria
@@ -94,46 +103,44 @@ import java.util.*
     private external fun is_numeric_address(ip: String?): Boolean
     private external fun dump_memory_profile()
     fun getSelfVersionName(context: Context): String {
-        try {
-            val pInfo: PackageInfo = context.getPackageManager().getPackageInfo(context.getPackageName(), 0)
-            return pInfo.versionName
+        return try {
+            val pInfo: PackageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName
         } catch (ex: PackageManager.NameNotFoundException) {
-            return ex.toString()
+            ex.toString()
         }
     }
 
     fun getSelfVersionCode(context: Context): Int {
-        try {
-            val pInfo: PackageInfo = context.getPackageManager().getPackageInfo(context.getPackageName(), 0)
-            return pInfo.versionCode
+        return try {
+            val pInfo: PackageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionCode
         } catch (ex: PackageManager.NameNotFoundException) {
-            return -1
+            -1
         }
     }
 
     fun isNetworkActive(context: Context): Boolean {
         val cm: ConnectivityManager? = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        return (cm != null && cm.getActiveNetworkInfo() != null)
+        return (cm?.activeNetworkInfo != null)
     }
 
     fun isConnected(context: Context): Boolean {
-        val cm: ConnectivityManager? = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        if (cm == null) return false
-        var ni: NetworkInfo? = cm.getActiveNetworkInfo()
-        if (ni != null && ni.isConnected()) return true
-        val networks: Array<Network>? = cm.getAllNetworks()
-        if (networks == null) return false
+        val cm: ConnectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
+                ?: return false
+        var ni: NetworkInfo? = cm.activeNetworkInfo
+        if (ni != null && ni.isConnected) return true
+        val networks: Array<Network> = cm.allNetworks
         for (network: Network? in networks) {
             ni = cm.getNetworkInfo(network)
-            if ((ni != null) && (ni.getType() != ConnectivityManager.TYPE_VPN) && ni.isConnected()) return true
+            if ((ni != null) && (ni.type != ConnectivityManager.TYPE_VPN) && ni.isConnected) return true
         }
         return false
     }
 
     fun isWifiActive(context: Context): Boolean {
-        val cm: ConnectivityManager? = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        val ni: NetworkInfo? = (if (cm == null) null else cm.getActiveNetworkInfo())
-        return (ni != null && ni.getType() == ConnectivityManager.TYPE_WIFI)
+        val ni: NetworkInfo? = ((context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?)?.activeNetworkInfo)
+        return (ni != null && ni.type == ConnectivityManager.TYPE_WIFI)
     }
 
     fun isMeteredNetwork(context: Context): Boolean {
@@ -142,91 +149,84 @@ import java.util.*
     }
 
     fun getWifiSSID(context: Context): String {
-        val wm: WifiManager? = context.getApplicationContext().getSystemService(Context.WIFI_SERVICE) as WifiManager?
-        val ssid: String? = (if (wm == null) null else wm.getConnectionInfo().getSSID())
-        return (if (ssid == null) "NULL" else ssid)
-    }
-
-    fun getNetworkType(context: Context): Int {
-        val cm: ConnectivityManager? = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        val ni: NetworkInfo? = (if (cm == null) null else cm.getActiveNetworkInfo())
-        return (if (ni == null) TelephonyManager.NETWORK_TYPE_UNKNOWN else ni.getSubtype())
+        val wm: WifiManager? = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager?
+        return ((wm?.connectionInfo?.ssid) ?: "NULL")
     }
 
     fun getNetworkGeneration(context: Context): String? {
         val cm: ConnectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val ni: NetworkInfo? = cm.getActiveNetworkInfo()
-        return (if (ni != null && ni.getType() == ConnectivityManager.TYPE_MOBILE) getNetworkGeneration(ni.getSubtype()) else null)
+        val ni: NetworkInfo? = cm.activeNetworkInfo
+        return (if (ni != null && ni.type == ConnectivityManager.TYPE_MOBILE) getNetworkGeneration(ni.subtype) else null)
     }
 
     fun isRoaming(context: Context): Boolean {
-        val cm: ConnectivityManager? = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?
-        val ni: NetworkInfo? = (if (cm == null) null else cm.getActiveNetworkInfo())
-        return (ni != null && ni.isRoaming())
+        val ni: NetworkInfo? = ((context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager?)?.activeNetworkInfo)
+        return (ni != null && ni.isRoaming)
     }
 
     fun isNational(context: Context): Boolean {
-        try {
+        return try {
             val tm: TelephonyManager? = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager?
-            return ((tm != null) && (tm.getSimCountryIso() != null) && (tm.getSimCountryIso() == tm.getNetworkCountryIso()))
+            ((tm != null) && (tm.simCountryIso != null) && (tm.simCountryIso == tm.networkCountryIso))
         } catch (ignored: Throwable) {
-            return false
+            false
         }
     }
 
     fun isEU(context: Context): Boolean {
-        try {
+        return try {
             val tm: TelephonyManager? = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager?
-            return ((tm != null) && isEU(tm.getSimCountryIso()) && isEU(tm.getNetworkCountryIso()))
+            ((tm != null) && isEU(tm.simCountryIso) && isEU(tm.networkCountryIso))
         } catch (ignored: Throwable) {
-            return false
+            false
         }
     }
 
     fun isEU(country: String?): Boolean {
-        return (country != null && listEU.contains(country.toUpperCase()))
+        return (country != null && listEU.contains(country.toUpperCase(Locale.ROOT)))
     }
 
     fun isPrivateDns(context: Context): Boolean {
-        var dns_mode: String? = Settings.Global.getString(context.getContentResolver(), "private_dns_mode")
-        Log.i(TAG, "Private DNS mode=" + dns_mode)
+        var dns_mode: String? = Settings.Global.getString(context.contentResolver, "private_dns_mode")
+        Log.i(TAG, "Private DNS mode=$dns_mode")
         if (dns_mode == null) dns_mode = "off"
-        return (!("off" == dns_mode))
+        return ("off" != dns_mode)
     }
 
-    fun getNetworkGeneration(networkType: Int): String {
-        when (networkType) {
-            TelephonyManager.NETWORK_TYPE_1xRTT, TelephonyManager.NETWORK_TYPE_CDMA, TelephonyManager.NETWORK_TYPE_EDGE, TelephonyManager.NETWORK_TYPE_GPRS, TelephonyManager.NETWORK_TYPE_IDEN, TelephonyManager.NETWORK_TYPE_GSM -> return "2G"
-            TelephonyManager.NETWORK_TYPE_EHRPD, TelephonyManager.NETWORK_TYPE_EVDO_0, TelephonyManager.NETWORK_TYPE_EVDO_A, TelephonyManager.NETWORK_TYPE_EVDO_B, TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_HSPA, TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_HSUPA, TelephonyManager.NETWORK_TYPE_UMTS, TelephonyManager.NETWORK_TYPE_TD_SCDMA -> return "3G"
-            TelephonyManager.NETWORK_TYPE_LTE, TelephonyManager.NETWORK_TYPE_IWLAN -> return "4G"
-            else -> return "?G"
+    private fun getNetworkGeneration(networkType: Int): String {
+        return when (networkType) {
+            TelephonyManager.NETWORK_TYPE_1xRTT, TelephonyManager.NETWORK_TYPE_CDMA, TelephonyManager.NETWORK_TYPE_EDGE, TelephonyManager.NETWORK_TYPE_GPRS, TelephonyManager.NETWORK_TYPE_IDEN, TelephonyManager.NETWORK_TYPE_GSM -> "2G"
+            TelephonyManager.NETWORK_TYPE_EHRPD, TelephonyManager.NETWORK_TYPE_EVDO_0, TelephonyManager.NETWORK_TYPE_EVDO_A, TelephonyManager.NETWORK_TYPE_EVDO_B, TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_HSPA, TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_HSUPA, TelephonyManager.NETWORK_TYPE_UMTS, TelephonyManager.NETWORK_TYPE_TD_SCDMA -> "3G"
+            TelephonyManager.NETWORK_TYPE_LTE, TelephonyManager.NETWORK_TYPE_IWLAN -> "4G"
+            else -> "?G"
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.M)
     fun hasPhoneStatePermission(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) return (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) else return true
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) else true
     }
 
     fun getDefaultDNS(context: Context): List<String> {
         val listDns: MutableList<String> = ArrayList()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val cm: ConnectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val an: Network? = cm.getActiveNetwork()
+            val an: Network? = cm.activeNetwork
             if (an != null) {
                 val lp: LinkProperties? = cm.getLinkProperties(an)
                 if (lp != null) {
-                    val dns: List<InetAddress>? = lp.getDnsServers()
-                    if (dns != null) for (d: InetAddress in dns) {
-                        Log.i(TAG, "DNS from LP: " + d.getHostAddress())
-                        listDns.add(d.getHostAddress().split("%").toTypedArray().get(0))
+                    val dns: List<InetAddress> = lp.dnsServers
+                    for (d: InetAddress in dns) {
+                        Log.i(TAG, "DNS from LP: " + d.hostAddress)
+                        listDns.add(d.hostAddress.split("%").toTypedArray()[0])
                     }
                 }
             }
         } else {
             val dns1: String? = jni_getprop("net.dns1")
             val dns2: String? = jni_getprop("net.dns2")
-            if (dns1 != null) listDns.add(dns1.split("%").toTypedArray().get(0))
-            if (dns2 != null) listDns.add(dns2.split("%").toTypedArray().get(0))
+            if (dns1 != null) listDns.add(dns1.split("%").toTypedArray()[0])
+            if (dns2 != null) listDns.add(dns2.split("%").toTypedArray()[0])
         }
         return listDns
     }
@@ -237,30 +237,23 @@ import java.util.*
 
     fun isInteractive(context: Context): Boolean {
         val pm: PowerManager? = context.getSystemService(Context.POWER_SERVICE) as PowerManager?
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT_WATCH) return (pm != null && pm.isScreenOn()) else return (pm != null && pm.isInteractive())
+        return (pm != null && pm.isInteractive)
     }
 
-    fun isPackageInstalled(packageName: String?, context: Context): Boolean {
-        try {
-            context.getPackageManager().getPackageInfo((packageName)!!, 0)
-            return true
+    private fun isPackageInstalled(packageName: String?, context: Context): Boolean {
+        return try {
+            context.packageManager.getPackageInfo((packageName)!!, 0)
+            true
         } catch (ignored: PackageManager.NameNotFoundException) {
-            return false
+            false
         }
     }
 
-    fun isSystem(uid: Int, context: Context): Boolean {
-        val pm: PackageManager = context.getPackageManager()
-        val pkgs: Array<String>? = pm.getPackagesForUid(uid)
-        if (pkgs != null) for (pkg: String? in pkgs) if (isSystem(pkg, context)) return true
-        return false
-    }
-
     fun isSystem(packageName: String?, context: Context): Boolean {
-        try {
-            val pm: PackageManager = context.getPackageManager()
+        return try {
+            val pm: PackageManager = context.packageManager
             val info: PackageInfo = pm.getPackageInfo((packageName)!!, 0)
-            return ((info.applicationInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0)
+            ((info.applicationInfo.flags and (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0)
             /*
             PackageInfo pkg = pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES);
             PackageInfo sys = pm.getPackageInfo("android", PackageManager.GET_SIGNATURES);
@@ -268,17 +261,17 @@ import java.util.*
                     sys.signatures.length > 0 && sys.signatures[0].equals(pkg.signatures[0]));
             */
         } catch (ignore: PackageManager.NameNotFoundException) {
-            return false
+            false
         }
     }
 
     fun hasInternet(packageName: String?, context: Context): Boolean {
-        val pm: PackageManager = context.getPackageManager()
+        val pm: PackageManager = context.packageManager
         return (pm.checkPermission("android.permission.INTERNET", (packageName)!!) == PackageManager.PERMISSION_GRANTED)
     }
 
     fun hasInternet(uid: Int, context: Context): Boolean {
-        val pm: PackageManager = context.getPackageManager()
+        val pm: PackageManager = context.packageManager
         val pkgs: Array<String>? = pm.getPackagesForUid(uid)
         if (pkgs != null) for (pkg: String? in pkgs) if (hasInternet(pkg, context)) return true
         return false
@@ -287,64 +280,69 @@ import java.util.*
     fun isEnabled(info: PackageInfo, context: Context): Boolean {
         var setting: Int
         try {
-            val pm: PackageManager = context.getPackageManager()
+            val pm: PackageManager = context.packageManager
             setting = pm.getApplicationEnabledSetting(info.packageName)
         } catch (ex: IllegalArgumentException) {
             setting = PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
             Log.w(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
         }
-        if (setting == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) return info.applicationInfo.enabled else return (setting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
+        return if (setting == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) info.applicationInfo.enabled else (setting == PackageManager.COMPONENT_ENABLED_STATE_ENABLED)
     }
 
     fun getApplicationNames(uid: Int, context: Context): List<String> {
         val listResult: MutableList<String> = ArrayList()
-        if (uid == 0) listResult.add(context.getString(R.string.title_root)) else if (uid == 1013) listResult.add(context.getString(R.string.title_mediaserver)) else if (uid == 9999) listResult.add(context.getString(R.string.title_nobody)) else {
-            val pm: PackageManager = context.getPackageManager()
-            val pkgs: Array<String>? = pm.getPackagesForUid(uid)
-            if (pkgs == null) listResult.add(Integer.toString(uid)) else for (pkg: String? in pkgs) try {
-                val info: ApplicationInfo = pm.getApplicationInfo((pkg)!!, 0)
-                listResult.add(pm.getApplicationLabel(info).toString())
-            } catch (ignored: PackageManager.NameNotFoundException) {
+        when (uid) {
+            0 -> listResult.add(context.getString(R.string.title_root))
+            1013 -> listResult.add(context.getString(R.string.title_mediaserver))
+            9999 -> listResult.add(context.getString(R.string.title_nobody))
+            else -> {
+                val pm: PackageManager = context.packageManager
+                val pkgs: Array<String>? = pm.getPackagesForUid(uid)
+                if (pkgs == null) listResult.add(uid.toString()) else for (pkg: String? in pkgs) try {
+                    val info: ApplicationInfo = pm.getApplicationInfo((pkg)!!, 0)
+                    listResult.add(pm.getApplicationLabel(info).toString())
+                } catch (ignored: PackageManager.NameNotFoundException) {
+                }
+                listResult.sort()
             }
-            Collections.sort(listResult)
         }
         return listResult
     }
 
-    fun canFilter(context: Context?): Boolean {
+    fun canFilter(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true
 
         // https://android-review.googlesource.com/#/c/206710/1/untrusted_app.te
-        val tcp: File = File("/proc/net/tcp")
-        val tcp6: File = File("/proc/net/tcp6")
+        val tcp = File("/proc/net/tcp")
+        val tcp6 = File("/proc/net/tcp6")
         try {
             if (tcp.exists() && tcp.canRead()) return true
         } catch (ignored: SecurityException) {
         }
-        try {
-            return (tcp6.exists() && tcp6.canRead())
+        return try {
+            (tcp6.exists() && tcp6.canRead())
         } catch (ignored: SecurityException) {
-            return false
+            false
         }
     }
 
     fun isDebuggable(context: Context): Boolean {
-        return ((context.getApplicationContext().getApplicationInfo().flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0)
+        return ((context.applicationContext.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0)
     }
 
     fun isPlayStoreInstall(context: Context): Boolean {
         if (BuildConfig.PLAY_STORE_RELEASE) return true
-        try {
-            return ("com.android.vending" == context.getPackageManager().getInstallerPackageName(context.getPackageName()))
+        return try {
+            ("com.android.vending" == context.packageManager.getInstallerPackageName(context.packageName))
         } catch (ex: Throwable) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-            return false
+            false
         }
     }
 
-    fun hasXposed(context: Context): Boolean {
-        if (true || !isPlayStoreInstall(context)) return false
-        for (ste: StackTraceElement in Thread.currentThread().getStackTrace()) if (ste.getClassName().startsWith("de.robv.android.xposed")) return true
+    fun hasXposed(): Boolean {
+        return false
+        for (ste: StackTraceElement in Thread.currentThread().stackTrace) if (ste.className.startsWith("de.robv.android.xposed")) return true
         return false
     }
 
@@ -352,24 +350,25 @@ import java.util.*
         var ex: Throwable? = ex
         if (ex is OutOfMemoryError) return false
         if (ex!!.cause != null) ex = ex.cause
-        for (ste: StackTraceElement in ex!!.getStackTrace()) if (ste.getClassName().startsWith(context.getPackageName())) return true
+        for (ste: StackTraceElement in ex!!.stackTrace) if (ste.className.startsWith(context.packageName)) return true
         return false
     }
 
+    @SuppressLint("PackageManagerGetSignatures")
     fun getFingerprint(context: Context): String? {
-        try {
-            val pm: PackageManager = context.getPackageManager()
-            val pkg: String = context.getPackageName()
+        return try {
+            val pm: PackageManager = context.packageManager
+            val pkg: String = context.packageName
             val info: PackageInfo = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES)
-            val cert: ByteArray = info.signatures.get(0).toByteArray()
+            val cert: ByteArray = info.signatures[0].toByteArray()
             val digest: MessageDigest = MessageDigest.getInstance("SHA1")
             val bytes: ByteArray = digest.digest(cert)
             val sb: StringBuilder = StringBuilder()
-            for (b: Byte in bytes) sb.append(Integer.toString(b and 0xff, 16).toLowerCase())
-            return sb.toString()
+            for (b: Byte in bytes) sb.append((b and 0xff.toByte()).toString(16).toLowerCase(Locale.ROOT))
+            sb.toString()
         } catch (ex: Throwable) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-            return null
+            null
         }
     }
 
@@ -384,41 +383,31 @@ import java.util.*
         val dark: Boolean = prefs.getBoolean("dark_theme", false)
         val theme: String? = prefs.getString("theme", "teal")
         if ((theme == "teal")) context.setTheme(if (dark) R.style.AppThemeTealDark else R.style.AppThemeTeal) else if ((theme == "blue")) context.setTheme(if (dark) R.style.AppThemeBlueDark else R.style.AppThemeBlue) else if ((theme == "purple")) context.setTheme(if (dark) R.style.AppThemePurpleDark else R.style.AppThemePurple) else if ((theme == "amber")) context.setTheme(if (dark) R.style.AppThemeAmberDark else R.style.AppThemeAmber) else if ((theme == "orange")) context.setTheme(if (dark) R.style.AppThemeOrangeDark else R.style.AppThemeOrange) else if ((theme == "green")) context.setTheme(if (dark) R.style.AppThemeGreenDark else R.style.AppThemeGreen)
-        if (context is Activity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) setTaskColor(context)
+        setTaskColor(context)
     }
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private fun setTaskColor(context: Context) {
-        val tv: TypedValue = TypedValue()
-        context.getTheme().resolveAttribute(R.attr.colorPrimary, tv, true)
+        val tv = TypedValue()
+        context.theme.resolveAttribute(R.attr.colorPrimary, tv, true)
         (context as Activity).setTaskDescription(TaskDescription(null, null, tv.data))
     }
 
     fun dips2pixels(dips: Int, context: Context): Int {
-        return Math.round(dips * context.getResources().getDisplayMetrics().density + 0.5f)
+        return (dips * context.resources.displayMetrics.density + 0.5f).roundToInt()
     }
 
     private fun calculateInSampleSize(
             options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
         val height: Int = options.outHeight
         val width: Int = options.outWidth
-        var inSampleSize: Int = 1
+        var inSampleSize = 1
         if (height > reqHeight || width > reqWidth) {
             val halfHeight: Int = height / 2
             val halfWidth: Int = width / 2
             while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) inSampleSize *= 2
         }
         return inSampleSize
-    }
-
-    fun decodeSampledBitmapFromResource(
-            resources: Resources?, resourceId: Int, reqWidth: Int, reqHeight: Int): Bitmap {
-        val options: BitmapFactory.Options = BitmapFactory.Options()
-        options.inJustDecodeBounds = true
-        BitmapFactory.decodeResource(resources, resourceId, options)
-        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight)
-        options.inJustDecodeBounds = false
-        return BitmapFactory.decodeResource(resources, resourceId, options)
     }
 
     fun getProtocolName(protocol: Int, version: Int, brief: Boolean): String {
@@ -451,7 +440,7 @@ import java.util.*
                 b = "E"
             }
         }
-        if (p == null) return Integer.toString(protocol) + "/" + version
+        if (p == null) return "$protocol/$version"
         return ((if (brief) b else p) + (if (version > 0) version else ""))
     }
 
@@ -463,37 +452,31 @@ import java.util.*
         AlertDialog.Builder((context)!!)
                 .setView(view)
                 .setCancelable(true)
-                .setPositiveButton(android.R.string.yes, object : DialogInterface.OnClickListener {
-                    public override fun onClick(dialog: DialogInterface, which: Int) {
-                        listener.onSure()
-                    }
-                })
-                .setNegativeButton(android.R.string.no, object : DialogInterface.OnClickListener {
-                    public override fun onClick(dialog: DialogInterface, which: Int) {
-                        // Do nothing
-                    }
-                })
+                .setPositiveButton(android.R.string.yes) { _, _ -> listener.onSure() }
+                .setNegativeButton(android.R.string.no) { _, _ ->
+                    // Do nothing
+                }
                 .create().show()
     }
 
     private val mapIPOrganization: MutableMap<String, String?> = HashMap()
     @Throws(Exception::class)
     fun getOrganization(ip: String): String? {
-        synchronized(mapIPOrganization, { if (mapIPOrganization.containsKey(ip)) return mapIPOrganization.get(ip) })
+        synchronized(mapIPOrganization) { if (mapIPOrganization.containsKey(ip)) return mapIPOrganization[ip] }
         var reader: BufferedReader? = null
         try {
-            val url: URL = URL("https://ipinfo.io/" + ip + "/org")
+            val url = URL("https://ipinfo.io/$ip/org")
             val connection: HttpURLConnection = url.openConnection() as HttpURLConnection
-            connection.setRequestMethod("GET")
-            connection.setReadTimeout(15 * 1000)
+            connection.requestMethod = "GET"
+            connection.readTimeout = 15 * 1000
             connection.connect()
-            reader = BufferedReader(InputStreamReader(connection.getInputStream()))
+            reader = BufferedReader(InputStreamReader(connection.inputStream))
             var organization: String? = reader.readLine()
             if (("undefined" == organization)) organization = null
-            synchronized(mapIPOrganization, { mapIPOrganization.put(ip, organization) })
+            synchronized(mapIPOrganization) { mapIPOrganization.put(ip, organization) }
             return organization
         } finally {
-            if (reader != null) reader.close()
+            reader?.close()
         }
     }
 
@@ -507,7 +490,7 @@ import java.util.*
     }
 
     fun logExtras(intent: Intent?) {
-        if (intent != null) logBundle(intent.getExtras())
+        if (intent != null) logBundle(intent.extras)
     }
 
     fun logBundle(data: Bundle?) {
@@ -519,53 +502,39 @@ import java.util.*
                 stringBuilder.append(key)
                         .append("=")
                         .append(value)
-                        .append(if (value == null) "" else " (" + value.javaClass.getSimpleName() + ")")
+                        .append(if (value == null) "" else " (" + value.javaClass.simpleName + ")")
                         .append("\r\n")
             }
             Log.d(TAG, stringBuilder.toString())
         }
     }
 
-    fun readString(reader: InputStreamReader): StringBuilder {
-        val sb: StringBuilder = StringBuilder(2048)
-        val read: CharArray = CharArray(128)
-        try {
-            var i: Int
-            while ((reader.read(read).also({ i = it })) >= 0) {
-                sb.append(read, 0, i)
-            }
-        } catch (ex: Throwable) {
-            Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-        }
-        return sb
-    }
-
     fun sendCrashReport(ex: Throwable, context: Context) {
         if (!isPlayStoreInstall(context) || isDebuggable(context)) return
         try {
-            val report: ApplicationErrorReport = ApplicationErrorReport()
-            report.processName = context.getPackageName()
+            val report = ApplicationErrorReport()
+            report.processName = context.packageName
             report.packageName = report.processName
             report.time = System.currentTimeMillis()
             report.type = ApplicationErrorReport.TYPE_CRASH
             report.systemApp = false
-            val crash: CrashInfo = CrashInfo()
-            crash.exceptionClassName = ex.javaClass.getSimpleName()
+            val crash = CrashInfo()
+            crash.exceptionClassName = ex.javaClass.simpleName
             crash.exceptionMessage = ex.message
-            val writer: StringWriter = StringWriter()
-            val printer: PrintWriter = PrintWriter(writer)
+            val writer = StringWriter()
+            val printer = PrintWriter(writer)
             ex.printStackTrace(printer)
             crash.stackTrace = writer.toString()
-            val stack: StackTraceElement = ex.getStackTrace().get(0)
-            crash.throwClassName = stack.getClassName()
-            crash.throwFileName = stack.getFileName()
-            crash.throwLineNumber = stack.getLineNumber()
-            crash.throwMethodName = stack.getMethodName()
+            val stack: StackTraceElement = ex.stackTrace[0]
+            crash.throwClassName = stack.className
+            crash.throwFileName = stack.fileName
+            crash.throwLineNumber = stack.lineNumber
+            crash.throwMethodName = stack.methodName
             report.crashInfo = crash
-            val bug: Intent = Intent(Intent.ACTION_APP_ERROR)
+            val bug = Intent(Intent.ACTION_APP_ERROR)
             bug.putExtra(Intent.EXTRA_BUG_REPORT, report)
             bug.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            if (bug.resolveActivity(context.getPackageManager()) != null) context.startActivity(bug)
+            if (bug.resolveActivity(context.packageManager) != null) context.startActivity(bug)
         } catch (exex: Throwable) {
             Log.e(TAG, exex.toString() + "\n" + Log.getStackTraceString(exex))
         }
@@ -579,10 +548,10 @@ import java.util.*
         sb.append(String.format("WiFi %B\r\n", isWifiActive(context)))
         sb.append(String.format("Metered %B\r\n", isMeteredNetwork(context)))
         sb.append(String.format("Roaming %B\r\n", isRoaming(context)))
-        if (tm.getSimState() == TelephonyManager.SIM_STATE_READY) sb.append(String.format("SIM %s/%s/%s\r\n", tm.getSimCountryIso(), tm.getSimOperatorName(), tm.getSimOperator()))
+        if (tm.simState == TelephonyManager.SIM_STATE_READY) sb.append(String.format("SIM %s/%s/%s\r\n", tm.simCountryIso, tm.simOperatorName, tm.simOperator))
         //if (tm.getNetworkType() != TelephonyManager.NETWORK_TYPE_UNKNOWN)
         try {
-            sb.append(String.format("Network %s/%s/%s\r\n", tm.getNetworkCountryIso(), tm.getNetworkOperatorName(), tm.getNetworkOperator()))
+            sb.append(String.format("Network %s/%s/%s\r\n", tm.networkCountryIso, tm.networkOperatorName, tm.networkOperator))
         } catch (ex: Throwable) {
             /*
                 06-14 13:02:41.331 19703 19703 W ircode.netguar: Accessing hidden method Landroid/view/View;->computeFitSystemWindows(Landroid/graphics/Rect;Landroid/graphics/Rect;)Z (greylist, reflection, allowed)
@@ -604,7 +573,7 @@ import java.util.*
              */
         }
         val pm: PowerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) sb.append(String.format("Power saving %B\r\n", pm.isPowerSaveMode()))
+        sb.append(String.format("Power saving %B\r\n", pm.isPowerSaveMode))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) sb.append(String.format("Battery optimizing %B\r\n", batteryOptimizing(context)))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) sb.append(String.format("Data saving %B\r\n", dataSaving(context)))
         if (sb.length > 2) sb.setLength(sb.length - 2)
@@ -614,32 +583,32 @@ import java.util.*
     fun getNetworkInfo(context: Context): String {
         val sb: StringBuilder = StringBuilder()
         val cm: ConnectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val ani: NetworkInfo? = cm.getActiveNetworkInfo()
+        val ani: NetworkInfo? = cm.activeNetworkInfo
         val listNI: MutableList<NetworkInfo> = ArrayList()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) listNI.addAll(Arrays.asList(*cm.getAllNetworkInfo())) else for (network: Network? in cm.getAllNetworks()) {
+        for (network: Network? in cm.allNetworks) {
             val ni: NetworkInfo? = cm.getNetworkInfo(network)
             if (ni != null) listNI.add(ni)
         }
         for (ni: NetworkInfo in listNI) {
-            sb.append(ni.getTypeName()).append('/').append(ni.getSubtypeName())
-                    .append(' ').append(ni.getDetailedState())
-                    .append(if (TextUtils.isEmpty(ni.getExtraInfo())) "" else " " + ni.getExtraInfo())
-                    .append(if (ni.getType() == ConnectivityManager.TYPE_MOBILE) " " + getNetworkGeneration(ni.getSubtype()) else "")
-                    .append(if (ni.isRoaming()) " R" else "")
-                    .append(if ((ani != null) && (ni.getType() == ani.getType()) && (ni.getSubtype() == ani.getSubtype())) " *" else "")
+            sb.append(ni.typeName).append('/').append(ni.subtypeName)
+                    .append(' ').append(ni.detailedState)
+                    .append(if (TextUtils.isEmpty(ni.extraInfo)) "" else " " + ni.extraInfo)
+                    .append(if (ni.type == ConnectivityManager.TYPE_MOBILE) " " + getNetworkGeneration(ni.subtype) else "")
+                    .append(if (ni.isRoaming) " R" else "")
+                    .append(if ((ani != null) && (ni.type == ani.type) && (ni.subtype == ani.subtype)) " *" else "")
                     .append("\r\n")
         }
         try {
             val nis: Enumeration<NetworkInterface>? = NetworkInterface.getNetworkInterfaces()
             if (nis != null) while (nis.hasMoreElements()) {
                 val ni: NetworkInterface? = nis.nextElement()
-                if (ni != null && !ni.isLoopback()) {
-                    val ias: List<InterfaceAddress>? = ni.getInterfaceAddresses()
-                    if (ias != null) for (ia: InterfaceAddress in ias) sb.append(ni.getName())
-                            .append(' ').append(ia.getAddress().getHostAddress())
-                            .append('/').append(ia.getNetworkPrefixLength().toInt())
-                            .append(' ').append(ni.getMTU())
-                            .append(' ').append(if (ni.isUp()) '^' else 'v')
+                if (ni != null && !ni.isLoopback) {
+                    val ias: List<InterfaceAddress>? = ni.interfaceAddresses
+                    if (ias != null) for (ia: InterfaceAddress in ias) sb.append(ni.name)
+                            .append(' ').append(ia.address.hostAddress)
+                            .append('/').append(ia.networkPrefixLength.toInt())
+                            .append(' ').append(ni.mtu)
+                            .append(' ').append(if (ni.isUp) '^' else 'v')
                             .append("\r\n")
                 }
             }
@@ -653,18 +622,18 @@ import java.util.*
     @TargetApi(Build.VERSION_CODES.M)
     fun batteryOptimizing(context: Context): Boolean {
         val pm: PowerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return !pm.isIgnoringBatteryOptimizations(context.getPackageName())
+        return !pm.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     @TargetApi(Build.VERSION_CODES.N)
     fun dataSaving(context: Context): Boolean {
         val cm: ConnectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return (cm.getRestrictBackgroundStatus() == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED)
+        return (cm.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED)
     }
 
     fun sendLogcat(uri: Uri?, context: Context) {
-        val task: AsyncTask<*, *, *> = object : AsyncTask<Any?, Any?, Intent?>() {
-            protected override fun doInBackground(vararg objects: Any): Intent? {
+        GlobalScope.launch {
+            withContext(Dispatchers.Default){
                 val sb: StringBuilder = StringBuilder()
                 sb.append(context.getString(R.string.msg_issue))
                 sb.append("\r\n\r\n\r\n\r\n")
@@ -685,8 +654,7 @@ import java.util.*
                 sb.append(String.format("Display: %s\r\n", Build.DISPLAY))
                 sb.append(String.format("Id: %s\r\n", Build.ID))
                 sb.append(String.format("Fingerprint: %B\r\n", hasValidFingerprint(context)))
-                val abi: String
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) abi = Build.CPU_ABI else abi = (if (Build.SUPPORTED_ABIS.size > 0) Build.SUPPORTED_ABIS.get(0) else "?")
+                val abi: String = (if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "?")
                 sb.append(String.format("ABI: %s\r\n", abi))
                 val rt: Runtime = Runtime.getRuntime()
                 val hused: Long = (rt.totalMemory() - rt.freeMemory()) / 1024L
@@ -712,7 +680,7 @@ import java.util.*
                 sb.append("DNS system:\r\n")
                 for (dns: String? in getDefaultDNS(context)) sb.append("- ").append(dns).append("\r\n")
                 sb.append("DNS VPN:\r\n")
-                for (dns: InetAddress? in ServiceSinkhole.Companion.getDns(context)) sb.append("- ").append(dns).append("\r\n")
+                for (dns: InetAddress? in ServiceSinkhole.getDns(context)) sb.append("- ").append(dns).append("\r\n")
                 sb.append("\r\n")
 
                 // Get TCP connection info
@@ -721,12 +689,12 @@ import java.util.*
                 try {
                     sb.append("/proc/net/tcp:\r\n")
                     `in` = BufferedReader(FileReader("/proc/net/tcp"))
-                    while ((`in`.readLine().also({ line = it })) != null) sb.append(line).append("\r\n")
+                    while ((`in`.readLine().also { line = it }) != null) sb.append(line).append("\r\n")
                     `in`.close()
                     sb.append("\r\n")
                     sb.append("/proc/net/tcp6:\r\n")
                     `in` = BufferedReader(FileReader("/proc/net/tcp6"))
-                    while ((`in`.readLine().also({ line = it })) != null) sb.append(line).append("\r\n")
+                    while ((`in`.readLine().also { line = it }) != null) sb.append(line).append("\r\n")
                     `in`.close()
                     sb.append("\r\n")
                 } catch (ex: IOException) {
@@ -735,16 +703,16 @@ import java.util.*
 
                 // Get settings
                 val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
-                val all: Map<String, *> = prefs.getAll()
-                for (key: String in all.keys) sb.append("Setting: ").append(key).append('=').append(all.get(key)).append("\r\n")
+                val all: Map<String, *> = prefs.all
+                for (key: String in all.keys) sb.append("Setting: ").append(key).append('=').append(all[key]).append("\r\n")
                 sb.append("\r\n")
 
                 // Write logcat
                 dump_memory_profile()
                 var out: OutputStream? = null
                 try {
-                    Log.i(TAG, "Writing logcat URI=" + uri)
-                    out = context.getContentResolver().openOutputStream((uri)!!)
+                    Log.i(TAG, "Writing logcat URI=$uri")
+                    out = context.contentResolver.openOutputStream((uri)!!)
                     out!!.write(logcat.toString().toByteArray())
                     out.write(getTrafficLog(context).toString().toByteArray())
                 } catch (ex: Throwable) {
@@ -758,29 +726,26 @@ import java.util.*
                 }
 
                 // Build intent
-                val sendEmail: Intent = Intent(Intent.ACTION_SEND)
-                sendEmail.setType("message/rfc822")
+                val sendEmail = Intent(Intent.ACTION_SEND)
+                sendEmail.type = "message/rfc822"
                 sendEmail.putExtra(Intent.EXTRA_EMAIL, arrayOf("marcel+netguard@faircode.eu"))
-                sendEmail.putExtra(Intent.EXTRA_SUBJECT, "NetGuard " + version + " logcat")
+                sendEmail.putExtra(Intent.EXTRA_SUBJECT, "NetGuard $version logcat")
                 sendEmail.putExtra(Intent.EXTRA_TEXT, sb.toString())
                 sendEmail.putExtra(Intent.EXTRA_STREAM, uri)
-                return sendEmail
-            }
-
-            override fun onPostExecute(sendEmail: Intent?) {
-                if (sendEmail != null) try {
-                    context.startActivity(sendEmail)
-                } catch (ex: Throwable) {
-                    Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                withContext(Dispatchers.Main){
+                    if (sendEmail != null) try {
+                        context.startActivity(sendEmail)
+                    } catch (ex: Throwable) {
+                        Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                    }
                 }
             }
         }
-        task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
     }
 
     private fun getTrafficLog(context: Context): StringBuilder {
         val sb: StringBuilder = StringBuilder()
-        DatabaseHelper.Companion.getInstance(context)!!.getLog(true, true, true, true, true).use({ cursor ->
+        DatabaseHelper.getInstance(context).getLog(udp = true, tcp = true, other = true, allowed = true, blocked = true).use { cursor ->
             val colTime: Int = cursor.getColumnIndex("time")
             val colVersion: Int = cursor.getColumnIndex("version")
             val colProtocol: Int = cursor.getColumnIndex("protocol")
@@ -796,7 +761,7 @@ import java.util.*
             val colConnection: Int = cursor.getColumnIndex("connection")
             val colInteractive: Int = cursor.getColumnIndex("interactive")
             val format: DateFormat = SimpleDateFormat.getDateTimeInstance()
-            var count: Int = 0
+            var count = 0
             while (cursor.moveToNext() && ++count < 250) {
                 sb.append(format.format(cursor.getLong(colTime)))
                 sb.append(" v").append(cursor.getInt(colVersion))
@@ -814,27 +779,27 @@ import java.util.*
                 sb.append(' ').append(cursor.getString(colData))
                 sb.append("\r\n")
             }
-        })
+        }
         return sb
     }
 
     private val logcat: StringBuilder
-        private get() {
+        get() {
             val builder: StringBuilder = StringBuilder()
-            var process1: Process? = null
-            val process2: Process? = null
+            var  process1: java.lang.Process? = null
+            val process2: java.lang.Process? = null
             var br: BufferedReader? = null
             try {
                 val command1: Array<String> = arrayOf("logcat", "-d", "-v", "threadtime")
                 process1 = Runtime.getRuntime().exec(command1)
-                br = BufferedReader(InputStreamReader(process1.getInputStream()))
-                var count: Int = 0
+                br = BufferedReader(InputStreamReader(process1.inputStream))
+                var count = 0
                 var line: String?
-                while ((br.readLine().also({ line = it })) != null) {
+                while ((br.readLine().also { line = it }) != null) {
                     count++
                     builder.append(line).append("\r\n")
                 }
-                Log.i(TAG, "Logcat lines=" + count)
+                Log.i(TAG, "Logcat lines=$count")
             } catch (ex: IOException) {
                 Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
             } finally {
@@ -856,7 +821,7 @@ import java.util.*
             return builder
         }
 
-    open interface DoubtListener {
+    interface DoubtListener {
         fun onSure()
     }
 
@@ -864,7 +829,7 @@ import java.util.*
         try {
             System.loadLibrary("netguard")
         } catch (ignored: UnsatisfiedLinkError) {
-            System.exit(1)
+            exitProcess(1)
         }
     }
 }

@@ -25,23 +25,23 @@ import androidx.preference.PreferenceManager
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class WidgetMain constructor() : AppWidgetProvider() {
-    public override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+*/   class WidgetMain : AppWidgetProvider() {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         update(appWidgetIds, appWidgetManager, context)
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Widget"
+        private const val TAG: String = "NetGuard.Widget"
         private fun update(appWidgetIds: IntArray, appWidgetManager: AppWidgetManager, context: Context) {
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
             val enabled: Boolean = prefs.getBoolean("enabled", false)
             try {
                 try {
-                    val intent: Intent = Intent(if (enabled) WidgetAdmin.Companion.INTENT_OFF else WidgetAdmin.Companion.INTENT_ON)
-                    intent.setPackage(context.getPackageName())
+                    val intent = Intent(if (enabled) WidgetAdmin.INTENT_OFF else WidgetAdmin.INTENT_ON)
+                    intent.setPackage(context.packageName)
                     val pi: PendingIntent = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT)
                     for (id: Int in appWidgetIds) {
-                        val views: RemoteViews = RemoteViews(context.getPackageName(), R.layout.widgetmain)
+                        val views = RemoteViews(context.packageName, R.layout.widgetmain)
                         views.setOnClickPendingIntent(R.id.ivEnabled, pi)
                         views.setImageViewResource(R.id.ivEnabled, if (enabled) R.drawable.ic_security_color_24dp else R.drawable.ic_security_white_24dp_60)
                         appWidgetManager.updateAppWidget(id, views)

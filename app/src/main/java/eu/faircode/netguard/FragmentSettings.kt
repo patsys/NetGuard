@@ -1,180 +1,10 @@
-package eu.faircode.netguardimport
+package eu.faircode.netguard
 
 import android.os.Bundle
 import android.preference.PreferenceFragment
 import eu.faircode.netguard.R
 
-android.content.ServiceConnection
-import eu.faircode.netguard.IAB
-import android.content.Intent
-import android.content.ComponentName
-import android.os.IBinder
-import kotlin.Throws
-import org.json.JSONException
-import android.os.Bundle
-import org.json.JSONObject
-import android.content.SharedPreferences
-import eu.faircode.netguard.ActivityPro
-import android.app.PendingIntent
-import eu.faircode.netguard.DatabaseHelper
-import android.content.pm.PackageManager
-import android.content.res.XmlResourceParser
-import eu.faircode.netguard.R
-import org.xmlpull.v1.XmlPullParser
-import android.os.Build
-import android.content.pm.ApplicationInfo
-import android.net.ConnectivityManager
-import android.net.NetworkInfo
-import android.net.Network
-import androidx.core.net.ConnectivityManagerCompat
-import android.net.wifi.WifiManager
-import android.telephony.TelephonyManager
-import android.net.LinkProperties
-import android.os.PowerManager
-import android.app.Activity
-import android.annotation.TargetApi
-import android.util.TypedValue
-import android.app.ActivityManager.TaskDescription
-import android.graphics.BitmapFactory
-import android.graphics.Bitmap
-import eu.faircode.netguard.Util.DoubtListener
-import android.view.LayoutInflater
-import android.widget.TextView
-import android.content.DialogInterface
-import android.app.ApplicationErrorReport
-import android.app.ApplicationErrorReport.CrashInfo
-import android.text.TextUtils
-import android.os.AsyncTask
-import android.net.VpnService
-import eu.faircode.netguard.ServiceSinkhole
-import eu.faircode.netguard.Usage
-import eu.faircode.netguard.IPUtil.CIDR
-import eu.faircode.netguard.IPUtil
-import android.view.ViewGroup
-import androidx.core.graphics.drawable.DrawableCompat
-import androidx.core.view.ViewCompat
-import eu.faircode.netguard.AdapterLog
-import android.appwidget.AppWidgetProvider
-import android.appwidget.AppWidgetManager
-import eu.faircode.netguard.WidgetMain
-import eu.faircode.netguard.WidgetAdmin
-import android.widget.RemoteViews
-import androidx.appcompat.app.AppCompatActivity
-import eu.faircode.netguard.AdapterDns
-import android.view.MenuInflater
-import eu.faircode.netguard.ActivityDns
-import android.widget.Toast
-import android.util.Xml
-import android.content.SharedPreferences.OnSharedPreferenceChangeListener
-import eu.faircode.netguard.DatabaseHelper.LogChangedListener
-import androidx.appcompat.widget.SwitchCompat
-import android.widget.CompoundButton
-import android.widget.FilterQueryProvider
-import eu.faircode.netguard.ActivityLog
-import android.widget.AdapterView.OnItemClickListener
-import android.widget.AdapterView
-import eu.faircode.netguard.ActivityMain
-import android.content.ClipData
-import androidx.core.app.NavUtils
-import android.view.WindowManager
-import android.widget.ImageButton
-import android.widget.EditText
-import android.text.TextWatcher
-import android.text.Editable
-import android.content.ClipDescription
-import androidx.recyclerview.widget.RecyclerView
-import android.widget.Filterable
-import android.widget.LinearLayout
-import android.widget.RelativeLayout
-import android.widget.CheckBox
-import android.view.TouchDelegate
-import com.bumptech.glide.request.RequestOptions
-import com.bumptech.glide.load.DecodeFormat
-import androidx.core.widget.CompoundButtonCompat
-import eu.faircode.netguard.AdapterAccess
-import android.view.SubMenu
-import eu.faircode.netguard.AdapterRule
-import android.text.SpannableStringBuilder
-import android.text.style.ImageSpan
-import android.text.Spanned
-import androidx.core.app.NotificationManagerCompat
-import android.widget.Filter.FilterResults
-import android.content.res.TypedArray
-import androidx.core.content.ContextCompat
-import com.bumptech.glide.module.AppGlideModule
-import eu.faircode.netguard.ReceiverAutostart
-import android.app.AlarmManager
-import android.os.Vibrator
-import android.os.VibrationEffect
-import eu.faircode.netguard.WidgetLockdown
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import android.view.View.OnLongClickListener
-import android.view.Gravity
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout.OnRefreshListener
-import android.text.method.LinkMovementMethod
-import android.content.IntentFilter
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
-import android.text.SpannableString
-import android.text.style.UnderlineSpan
-import eu.faircode.netguard.DatabaseHelper.AccessChangedListener
-import android.content.BroadcastReceiver
-import eu.faircode.netguard.ActivitySettings
-import android.os.PowerManager.WakeLock
-import eu.faircode.netguard.DownloadTask
-import androidx.core.app.NotificationCompat
-import eu.faircode.netguard.ParseNetwork
-import eu.faircode.netguard.ApplicationEx
-import android.app.NotificationManager
-import android.app.NotificationChannel
-import android.database.sqlite.SQLiteOpenHelper
-import eu.faircode.netguard.DatabaseHelper.ForwardChangedListener
-import android.os.HandlerThread
-import android.database.sqlite.SQLiteDatabase
-import android.content.ContentValues
-import android.database.sqlite.SQLiteDoneException
-import android.app.IntentService
-import eu.faircode.netguard.ServiceExternal
-import android.telephony.PhoneStateListener
-import android.os.ParcelFileDescriptor
-import eu.faircode.netguard.ServiceSinkhole.IPKey
-import eu.faircode.netguard.ServiceSinkhole.IPRule
-import eu.faircode.netguard.Forward
-import kotlin.jvm.Volatile
-import android.os.Looper
-import eu.faircode.netguard.ServiceSinkhole.StatsHandler
-import eu.faircode.netguard.ServiceSinkhole.CommandHandler.StartFailedException
-import org.json.JSONArray
-import android.net.TrafficStats
-import eu.faircode.netguard.Allowed
-import android.net.ConnectivityManager.NetworkCallback
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
-import android.text.Spannable
-import android.text.style.StyleSpan
-import android.graphics.Typeface
-import android.text.style.ForegroundColorSpan
-import kotlin.jvm.Synchronized
-import android.service.quicksettings.TileService
-import eu.faircode.netguard.ServiceTileMain
-import eu.faircode.netguard.FragmentSettings
-import android.net.wifi.WifiConfiguration
-import eu.faircode.netguard.ActivityForwarding
-import androidx.core.util.PatternsCompat
-import android.content.ContentResolver
-import android.content.res.AssetFileDescriptor
-import eu.faircode.netguard.ActivitySettings.XmlImportHandler
-import android.view.View.MeasureSpec
-import eu.faircode.netguard.ServiceTileGraph
-import kotlin.jvm.JvmOverloads
-import eu.faircode.netguard.ServiceTileFilter
-import eu.faircode.netguard.AdapterForwarding
-import android.widget.Spinner
-import android.widget.ProgressBar
-import android.widget.ArrayAdapter
-import eu.faircode.netguard.ServiceTileLockdown
-import eu.faircode.netguard.ReceiverPackageRemoved
-import eu.faircode.netguard.ActivityForwardApproval
+
 
 /*
     This file is part of NetGuard.
@@ -193,8 +23,8 @@ import eu.faircode.netguard.ActivityForwardApproval
     along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
     Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class FragmentSettings constructor() : PreferenceFragment() {
-    public override fun onCreate(savedInstanceState: Bundle?) {
+*/   class FragmentSettings : PreferenceFragment() {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         addPreferencesFromResource(R.xml.preferences)
     }

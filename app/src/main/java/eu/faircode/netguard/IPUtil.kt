@@ -4,6 +4,10 @@ import android.util.Log
 import java.net.InetAddress
 import java.net.UnknownHostException
 import java.util.*
+import kotlin.experimental.and
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.pow
 
 /*
    This file is part of NetGuard.
@@ -23,7 +27,7 @@ import java.util.*
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   object IPUtil {
-    private val TAG: String = "NetGuard.IPUtil"
+    private const val TAG: String = "NetGuard.IPUtil"
     @Throws(UnknownHostException::class)
     fun toCIDR(start: String?, end: String?): List<CIDR> {
         return toCIDR(InetAddress.getByName(start), InetAddress.getByName(end))
@@ -32,7 +36,7 @@ import java.util.*
     @Throws(UnknownHostException::class)
     fun toCIDR(start: InetAddress?, end: InetAddress?): List<CIDR> {
         val listResult: MutableList<CIDR> = ArrayList()
-        Log.i(TAG, "toCIDR(" + start!!.getHostAddress() + "," + end!!.getHostAddress() + ")")
+        Log.i(TAG, "toCIDR(" + start!!.hostAddress + "," + end!!.hostAddress + ")")
         var from: Long = inet2long(start)
         val to: Long = inet2long(end)
         while (to >= from) {
@@ -42,10 +46,10 @@ import java.util.*
                 if ((from and mask) != from) break
                 prefix--
             }
-            val max: Byte = (32 - Math.floor(Math.log((to - from + 1).toDouble()) / Math.log(2.0))).toByte()
+            val max: Byte = (32 - floor(ln((to - from + 1).toDouble()) / ln(2.0))).toInt().toByte()
             if (prefix < max) prefix = max
-            listResult.add(CIDR(long2inet(from), prefix))
-            from += Math.pow(2.0, (32 - prefix).toDouble()).toLong()
+            listResult.add(CIDR(long2inet(from), prefix.toInt()))
+            from += 2.0.pow((32 - prefix).toDouble()).toLong()
         }
         for (cidr: CIDR in listResult) Log.i(TAG, cidr.toString())
         return listResult
@@ -57,21 +61,21 @@ import java.util.*
 
     private fun inet2long(addr: InetAddress?): Long {
         var result: Long = 0
-        if (addr != null) for (b: Byte in addr.getAddress()) result = result shl 8 or (b and 0xFF)
+        if (addr != null) for (b: Byte in addr.address) result = result shl 8 or ((b and 0xFF.toByte()).toLong())
         return result
     }
 
     private fun long2inet(addr: Long): InetAddress? {
         var addr: Long = addr
-        try {
-            val b: ByteArray = ByteArray(4)
+        return try {
+            val b = ByteArray(4)
             for (i in b.indices.reversed()) {
-                b.get(i) = (addr and 0xFF).toByte()
+                b[i] = (addr and 0xFF).toByte()
                 addr = addr shr 8
             }
-            return InetAddress.getByAddress(b)
+            InetAddress.getByAddress(b)
         } catch (ignore: UnknownHostException) {
-            return null
+            null
         }
     }
 
@@ -110,11 +114,11 @@ import java.util.*
                 return long2inet((inet2long(address) and prefix2mask(prefix)) + (1L shl (32 - prefix)) - 1)
             }
 
-        public override fun toString(): String {
-            return address!!.getHostAddress() + "/" + prefix + "=" + start!!.getHostAddress() + "..." + end!!.getHostAddress()
+        override fun toString(): String {
+            return address!!.hostAddress + "/" + prefix + "=" + start!!.hostAddress + "..." + end!!.hostAddress
         }
 
-        public override fun compareTo(other: CIDR): Int {
+        override fun compareTo(other: CIDR): Int {
             val lcidr: Long = inet2long(address)
             val lother: Long = inet2long(other.address)
             return lcidr.compareTo(lother)

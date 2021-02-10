@@ -30,12 +30,7 @@ import androidx.preference.PreferenceManager
 import eu.faircode.netguard.*
 import eu.faircode.netguard.Util.DoubtListener
 import eu.faircode.netguardimport.ActivityForwarding
-import eu.faircode.netguardimport.FragmentSettings
-import eu.faircode.netguardimport.ReceiverAutostart
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import org.xml.sax.Attributes
 import org.xml.sax.InputSource
 import org.xml.sax.SAXException
@@ -88,6 +83,7 @@ import kotlin.Throws
             return (fragmentManager.findFragmentById(android.R.id.content) as PreferenceFragment).preferenceScreen
         }
 
+    @InternalCoroutinesApi
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
         val screen: PreferenceScreen = preferenceScreen
@@ -143,7 +139,7 @@ import kotlin.Throws
                                 try {
                                     DatabaseHelper.Companion.getInstance(this@ActivitySettings)!!.resetUsage(-1)
                                     withContext(Dispatchers.Main){
-                                        Toast.makeText(this@ActivitySettings, R.string.msg_completed)
+                                        Toast.makeText(this@ActivitySettings, R.string.msg_completed,Toast.LENGTH_LONG).show()
                                     }
                                 } catch (ex: Throwable) {
                                     withContext(Dispatchers.Main){
@@ -169,7 +165,7 @@ import kotlin.Throws
             startActivity(Intent(this@ActivitySettings, ActivityForwarding::class.java))
             true
         }
-        val can: Boolean = Util.canFilter(this)
+        val can: Boolean = Util.canFilter()
         val pref_log_app: TwoStatePreference = screen.findPreference("log_app") as TwoStatePreference
         val pref_filter: TwoStatePreference = screen.findPreference("filter") as TwoStatePreference
         pref_log_app.isEnabled = can
@@ -280,8 +276,8 @@ import kotlin.Throws
                 var hosts_url: String = pref_hosts_url.text
                 if (("https://www.netguard.me/hosts" == hosts_url)) hosts_url = BuildConfig.HOSTS_FILE_URI
                 try {
-                    DownloadTask(this@ActivitySettings, URL(hosts_url), tmp, object : DownloadTask.Listener {
-                        override fun onCompleted() {
+                    uiScope.launch {DownloadTask(this@ActivitySettings, URL(hosts_url), tmp, object : DownloadTask.Listener {
+                        override suspend fun onCompleted() {
                             if (hosts.exists()) hosts.delete()
                             tmp.renameTo(hosts)
                             val last: String = SimpleDateFormat.getDateTimeInstance().format(Date().time)
@@ -293,15 +289,15 @@ import kotlin.Throws
                             ServiceSinkhole.reload("hosts file download", this@ActivitySettings, false)
                         }
 
-                        override fun onCancelled() {
+                        override suspend fun onCancelled() {
                             if (tmp.exists()) tmp.delete()
                         }
 
-                        override fun onException(ex: Throwable) {
+                        override suspend fun onException(ex: Throwable) {
                             if (tmp.exists()) tmp.delete()
                             if (running) Toast.makeText(this@ActivitySettings, ex.message, Toast.LENGTH_LONG).show()
                         }
-                    }).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR)
+                    }).beginDownload()}
                 } catch (ex: MalformedURLException) {
                     Toast.makeText(this@ActivitySettings, ex.toString(), Toast.LENGTH_LONG).show()
                 }
@@ -587,7 +583,7 @@ import kotlin.Throws
         if (sku == null || !IAB.Companion.isPurchased(sku, this)) {
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
             val dark: Boolean = prefs.getBoolean("dark_theme", false)
-            val ssb: SpannableStringBuilder = SpannableStringBuilder("  " + pref.title)
+            val ssb = SpannableStringBuilder("  " + pref.title)
             ssb.setSpan(ImageSpan(this, if (dark) R.drawable.ic_shopping_cart_white_24dp else R.drawable.ic_shopping_cart_black_24dp), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             pref.title = ssb
         }
@@ -690,13 +686,12 @@ import kotlin.Throws
                     out = FileOutputStream(hosts, append)
                     var len: Int
                     var total: Long = 0
-                    val buf: ByteArray = ByteArray(4096)
+                    val buf = ByteArray(4096)
                     while ((`in`.read(buf).also { len = it }) > 0) {
                         out.write(buf, 0, len)
                         total += len.toLong()
                     }
                     Log.i(TAG, "Copied bytes=$total")
-                    return null
                 } catch (ex: Throwable) {
                     Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
                     withContext(Dispatchers.Main) {

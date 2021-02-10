@@ -35,13 +35,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */   class DatabaseHelper private constructor(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
-    private val prefs: SharedPreferences
+    private val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
     private val lock: ReentrantReadWriteLock = ReentrantReadWriteLock(true)
 
     companion object {
-        private val TAG: String = "NetGuard.Database"
-        private val DB_NAME: String = "Netguard"
-        private val DB_VERSION: Int = 21
+        private const val TAG: String = "NetGuard.Database"
+        private const val DB_NAME: String = "Netguard"
+        private const val DB_VERSION: Int = 21
         private var once: Boolean = true
         private val logChangedListeners: MutableList<LogChangedListener> = ArrayList()
         private val accessChangedListeners: MutableList<AccessChangedListener> = ArrayList()
@@ -49,17 +49,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         private var hthread: HandlerThread? = null
         private var handler: Handler? = null
         private val mapUidHosts: MutableMap<Int, Long> = HashMap()
-        private val MSG_LOG: Int = 1
-        private val MSG_ACCESS: Int = 2
-        private val MSG_FORWARD: Int = 3
+        private const val MSG_LOG: Int = 1
+        private const val MSG_ACCESS: Int = 2
+        private const val MSG_FORWARD: Int = 3
         private var dh: DatabaseHelper? = null
         fun getInstance(context: Context): DatabaseHelper {
             if (dh == null) dh = DatabaseHelper(context.applicationContext)
-            return dh
+            return dh as DatabaseHelper
         }
 
         fun clearCache() {
-            synchronized(mapUidHosts, { mapUidHosts.clear() })
+            synchronized(mapUidHosts) { mapUidHosts.clear() }
         }
 
         private fun handleChangedNotification(msg: Message) {
@@ -71,23 +71,27 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
             }
 
             // Notify listeners
-            if (msg.what == MSG_LOG) {
-                for (listener: LogChangedListener in logChangedListeners) try {
-                    listener.onChanged()
-                } catch (ex: Throwable) {
-                    Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+            when (msg.what) {
+                MSG_LOG -> {
+                    for (listener: LogChangedListener in logChangedListeners) try {
+                        listener.onChanged()
+                    } catch (ex: Throwable) {
+                        Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                    }
                 }
-            } else if (msg.what == MSG_ACCESS) {
-                for (listener: AccessChangedListener in accessChangedListeners) try {
-                    listener.onChanged()
-                } catch (ex: Throwable) {
-                    Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                MSG_ACCESS -> {
+                    for (listener: AccessChangedListener in accessChangedListeners) try {
+                        listener.onChanged()
+                    } catch (ex: Throwable) {
+                        Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                    }
                 }
-            } else if (msg.what == MSG_FORWARD) {
-                for (listener: ForwardChangedListener in forwardChangedListeners) try {
-                    listener.onChanged()
-                } catch (ex: Throwable) {
-                    Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                MSG_FORWARD -> {
+                    for (listener: ForwardChangedListener in forwardChangedListeners) try {
+                        listener.onChanged()
+                    } catch (ex: Throwable) {
+                        Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
+                    }
                 }
             }
         }
@@ -95,20 +99,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         init {
             hthread = HandlerThread("DatabaseHelper")
             hthread!!.start()
-            handler = object : Handler(hthread!!.getLooper()) {
-                public override fun handleMessage(msg: Message) {
+            handler = object : Handler(hthread!!.looper) {
+                override fun handleMessage(msg: Message) {
                     handleChangedNotification(msg)
                 }
             }
         }
     }
 
-    public override fun close() {
+    override fun close() {
         Log.w(TAG, "Database is being closed")
     }
 
-    public override fun onCreate(db: SQLiteDatabase) {
-        Log.i(TAG, "Creating database " + DB_NAME + " version " + DB_VERSION)
+    override fun onCreate(db: SQLiteDatabase) {
+        Log.i(TAG, "Creating database $DB_NAME version $DB_VERSION")
         createTableLog(db)
         createTableAccess(db)
         createTableDns(db)
@@ -116,7 +120,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         createTableApp(db)
     }
 
-    public override fun onConfigure(db: SQLiteDatabase) {
+    override fun onConfigure(db: SQLiteDatabase) {
         db.enableWriteAheadLogging()
         super.onConfigure(db)
     }
@@ -210,20 +214,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 
     private fun columnExists(db: SQLiteDatabase, table: String, column: String): Boolean {
         var cursor: Cursor? = null
-        try {
-            cursor = db.rawQuery("SELECT * FROM " + table + " LIMIT 0", null)
-            return (cursor.getColumnIndex(column) >= 0)
+        return try {
+            cursor = db.rawQuery("SELECT * FROM $table LIMIT 0", null)
+            (cursor.getColumnIndex(column) >= 0)
         } catch (ex: Throwable) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
-            return false
+            false
         } finally {
-            if (cursor != null) cursor.close()
+            cursor?.close()
         }
     }
 
-    public override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         var oldVersion: Int = oldVersion
-        Log.i(TAG, DB_NAME + " upgrading from version " + oldVersion + " to " + newVersion)
+        Log.i(TAG, "$DB_NAME upgrading from version $oldVersion to $newVersion")
         db.beginTransaction()
         try {
             if (oldVersion < 2) {
@@ -322,10 +326,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
                 oldVersion = 21
             }
             if (oldVersion == DB_VERSION) {
-                db.setVersion(oldVersion)
+                db.version = oldVersion
                 db.setTransactionSuccessful()
-                Log.i(TAG, DB_NAME + " upgraded to " + DB_VERSION)
-            } else throw IllegalArgumentException(DB_NAME + " upgraded to " + oldVersion + " but required " + DB_VERSION)
+                Log.i(TAG, "$DB_NAME upgraded to $DB_VERSION")
+            } else throw IllegalArgumentException("$DB_NAME upgraded to $oldVersion but required $DB_VERSION")
         } catch (ex: Throwable) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
         } finally {
@@ -337,10 +341,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun insertLog(packet: Packet, dname: String?, connection: Int, interactive: Boolean) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("time", packet.time)
                 cv.put("version", packet.version)
                 if (packet.protocol < 0) cv.putNull("protocol") else cv.put("protocol", packet.protocol)
@@ -369,10 +373,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun clearLog(uid: Int) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                if (uid < 0) db.delete("log", null, arrayOf()) else db.delete("log", "uid = ?", arrayOf(Integer.toString(uid)))
+                if (uid < 0) db.delete("log", null, arrayOf()) else db.delete("log", "uid = ?", arrayOf(uid.toString()))
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -387,11 +391,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun cleanupLog(time: Long) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 // There an index on time
-                val rows: Int = db.delete("log", "time < ?", arrayOf(java.lang.Long.toString(time)))
+                val rows: Int = db.delete("log", "time < ?", arrayOf(time.toString()))
                 Log.i(TAG, ("Cleanup log" +
                         " before=" + SimpleDateFormat.getDateTimeInstance().format(Date(time)) +
                         " rows=" + rows))
@@ -407,7 +411,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun getLog(udp: Boolean, tcp: Boolean, other: Boolean, allowed: Boolean, blocked: Boolean): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is an index on time
             // There is no index on protocol/allowed for write performance
             var query: String? = "SELECT ID AS _id, *"
@@ -430,13 +434,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun searchLog(find: String): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is an index on daddr, dname, dport and uid
             var query: String? = "SELECT ID AS _id, *"
             query += " FROM log"
             query += " WHERE daddr LIKE ? OR dname LIKE ? OR dport = ? OR uid = ?"
             query += " ORDER BY time DESC"
-            return db.rawQuery(query, arrayOf("%" + find + "%", "%" + find + "%", find, find))
+            return db.rawQuery(query, arrayOf("%$find%", "%$find%", find, find))
         } finally {
             lock.readLock().unlock()
         }
@@ -447,30 +451,30 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         val rows: Int
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("time", packet.time)
                 cv.put("allowed", if (packet.allowed) 1 else 0)
                 if (block >= 0) cv.put("block", block)
 
                 // There is a segmented index on uid, version, protocol, daddr and dport
                 rows = db.update("access", cv, "uid = ? AND version = ? AND protocol = ? AND daddr = ? AND dport = ?", arrayOf(
-                        Integer.toString(packet.uid),
-                        Integer.toString(packet.version),
-                        Integer.toString(packet.protocol),
-                        if (dname == null) packet.daddr else dname,
-                        Integer.toString(packet.dport)))
+                        packet.uid.toString(),
+                        packet.version.toString(),
+                        packet.protocol.toString(),
+                        dname ?: packet.daddr,
+                        packet.dport.toString()))
                 if (rows == 0) {
                     cv.put("uid", packet.uid)
                     cv.put("version", packet.version)
                     cv.put("protocol", packet.protocol)
-                    cv.put("daddr", if (dname == null) packet.daddr else dname)
+                    cv.put("daddr", dname ?: packet.daddr)
                     cv.put("dport", packet.dport)
                     if (block < 0) cv.put("block", block)
                     if (db.insert("access", null, cv) == -1L) Log.e(TAG, "Insert access failed")
-                } else if (rows != 1) Log.e(TAG, "Update access failed rows=" + rows)
+                } else if (rows != 1) Log.e(TAG, "Update access failed rows=$rows")
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -485,22 +489,22 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun updateUsage(usage: Usage, dname: String?) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 // There is a segmented index on uid, version, protocol, daddr and dport
-                val selection: String = "uid = ? AND version = ? AND protocol = ? AND daddr = ? AND dport = ?"
+                val selection = "uid = ? AND version = ? AND protocol = ? AND daddr = ? AND dport = ?"
                 val selectionArgs: Array<String?> = arrayOf(
-                        Integer.toString(usage.Uid),
-                        Integer.toString(usage.Version),
-                        Integer.toString(usage.Protocol),
-                        if (dname == null) usage.DAddr else dname,
-                        Integer.toString(usage.DPort)
+                        usage.Uid.toString(),
+                        usage.Version.toString(),
+                        usage.Protocol.toString(),
+                        dname ?: usage.DAddr,
+                        usage.DPort.toString()
                 )
-                db.query("access", arrayOf("sent", "received", "connections"), selection, selectionArgs, null, null, null).use({ cursor ->
+                db.query("access", arrayOf("sent", "received", "connections"), selection, selectionArgs, null, null, null).use { cursor ->
                     var sent: Long = 0
                     var received: Long = 0
-                    var connections: Int = 0
+                    var connections = 0
                     val colSent: Int = cursor.getColumnIndex("sent")
                     val colReceived: Int = cursor.getColumnIndex("received")
                     val colConnections: Int = cursor.getColumnIndex("connections")
@@ -509,13 +513,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
                         received = if (cursor.isNull(colReceived)) 0 else cursor.getLong(colReceived)
                         connections = if (cursor.isNull(colConnections)) 0 else cursor.getInt(colConnections)
                     }
-                    val cv: ContentValues = ContentValues()
+                    val cv = ContentValues()
                     cv.put("sent", sent + usage.Sent)
                     cv.put("received", received + usage.Received)
                     cv.put("connections", connections + 1)
                     val rows: Int = db.update("access", cv, selection, selectionArgs)
-                    if (rows != 1) Log.e(TAG, "Update usage failed rows=" + rows)
-                })
+                    if (rows != 1) Log.e(TAG, "Update usage failed rows=$rows")
+                }
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -529,13 +533,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun setAccess(id: Long, block: Int) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("block", block)
                 cv.put("allowed", -1)
-                if (db.update("access", cv, "ID = ?", arrayOf(java.lang.Long.toString(id))) != 1) Log.e(TAG, "Set access failed")
+                if (db.update("access", cv, "ID = ?", arrayOf(id.toString())) != 1) Log.e(TAG, "Set access failed")
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -549,7 +553,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun clearAccess() {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 db.delete("access", null, null)
@@ -566,12 +570,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun clearAccess(uid: Int, keeprules: Boolean) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 // There is a segmented index on uid
                 // There is an index on block
-                if (keeprules) db.delete("access", "uid = ? AND block < 0", arrayOf(Integer.toString(uid))) else db.delete("access", "uid = ?", arrayOf(Integer.toString(uid)))
+                if (keeprules) db.delete("access", "uid = ? AND block < 0", arrayOf(uid.toString())) else db.delete("access", "uid = ?", arrayOf(uid.toString()))
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -586,16 +590,16 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         lock.writeLock().lock()
         try {
             // There is a segmented index on uid
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.putNull("sent")
                 cv.putNull("received")
                 cv.putNull("connections")
                 db.update("access", cv,
                         (if (uid < 0) null else "uid = ?"),
-                        (if (uid < 0) null else arrayOf(Integer.toString(uid))))
+                        (if (uid < 0) null else arrayOf(uid.toString())))
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -609,7 +613,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun getAccess(uid: Int): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is a segmented index on uid
             // There is no index on time for write performance
             var query: String? = "SELECT a.ID AS _id, a.*"
@@ -618,7 +622,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
             query += " WHERE a.uid = ?"
             query += " ORDER BY a.time DESC"
             query += " LIMIT 250"
-            return db.rawQuery(query, arrayOf(Integer.toString(uid)))
+            return db.rawQuery(query, arrayOf(uid.toString()))
         } finally {
             lock.readLock().unlock()
         }
@@ -630,7 +634,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         get() {
             lock.readLock().lock()
             try {
-                val db: SQLiteDatabase = getReadableDatabase()
+                val db: SQLiteDatabase = readableDatabase
                 // There is a segmented index on uid
                 // There is an index on block
                 return db.query("access", null, "block >= 0", null, null, null, "uid")
@@ -642,7 +646,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun getAccessUnset(uid: Int, limit: Int, since: Long): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is a segmented index on uid, block and daddr
             // There is no index on allowed and time for write performance
             var query: String? = "SELECT MAX(time) AS time, daddr, allowed"
@@ -652,22 +656,22 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
             query += " AND time >= ?"
             query += " GROUP BY daddr, allowed"
             query += " ORDER BY time DESC"
-            if (limit > 0) query += " LIMIT " + limit
-            return db.rawQuery(query, arrayOf(Integer.toString(uid), java.lang.Long.toString(since)))
+            if (limit > 0) query += " LIMIT $limit"
+            return db.rawQuery(query, arrayOf(uid.toString(), since.toString()))
         } finally {
             lock.readLock().unlock()
         }
     }
 
     fun getHostCount(uid: Int, usecache: Boolean): Long {
-        if (usecache) synchronized(mapUidHosts, { if (mapUidHosts.containsKey(uid)) return (mapUidHosts.get(uid))!! })
+        if (usecache) synchronized(mapUidHosts) { if (mapUidHosts.containsKey(uid)) return (mapUidHosts[uid])!! }
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is a segmented index on uid
             // There is an index on block
-            val hosts: Long = db.compileStatement("SELECT COUNT(*) FROM access WHERE block >= 0 AND uid =" + uid).simpleQueryForLong()
-            synchronized(mapUidHosts, { mapUidHosts.put(uid, hosts) })
+            val hosts: Long = db.compileStatement("SELECT COUNT(*) FROM access WHERE block >= 0 AND uid =$uid").simpleQueryForLong()
+            synchronized(mapUidHosts) { mapUidHosts.put(uid, hosts) }
             return hosts
         } finally {
             lock.readLock().unlock()
@@ -678,13 +682,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun insertDns(rr: ResourceRecord): Boolean {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 var ttl: Int = rr.TTL
                 val min: Int = prefs.getString("ttl", "259200")!!.toInt()
                 if (ttl < min) ttl = min
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("time", rr.Time)
                 cv.put("ttl", ttl * 1000L)
                 var rows: Int = db.update("dns", cv, "qname = ? AND aname = ? AND resource = ?", arrayOf(rr.QName, rr.AName, rr.Resource))
@@ -693,7 +697,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
                     cv.put("aname", rr.AName)
                     cv.put("resource", rr.Resource)
                     if (db.insert("dns", null, cv) == -1L) Log.e(TAG, "Insert dns failed") else rows = 1
-                } else if (rows != 1) Log.e(TAG, "Update dns failed rows=" + rows)
+                } else if (rows != 1) Log.e(TAG, "Update dns failed rows=$rows")
                 db.setTransactionSuccessful()
                 return (rows > 0)
             } finally {
@@ -707,12 +711,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun cleanupDns() {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 // There is no index on time for write performance
-                val now: Long = Date().getTime()
-                db.execSQL("DELETE FROM dns WHERE time + ttl < " + now)
+                val now: Long = Date().time
+                db.execSQL("DELETE FROM dns WHERE time + ttl < $now")
                 Log.i(TAG, "Cleanup DNS")
                 db.setTransactionSuccessful()
             } finally {
@@ -726,7 +730,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun clearDns() {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 db.delete("dns", null, arrayOf())
@@ -739,10 +743,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         }
     }
 
-    fun getQName(uid: Int, ip: String?): String? {
+    fun getQName(ip: String?): String? {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             // There is a segmented index on resource
             var query: String? = "SELECT d.qname"
             query += " FROM dns AS d"
@@ -762,7 +766,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun getAlternateQNames(qname: String): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
             var query: String? = "SELECT DISTINCT d2.qname"
             query += " FROM dns d1"
             query += " JOIN dns d2"
@@ -781,7 +785,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         get() {
             lock.readLock().lock()
             try {
-                val db: SQLiteDatabase = getReadableDatabase()
+                val db: SQLiteDatabase = readableDatabase
                 // There is an index on resource
                 // There is a segmented index on qname
                 var query: String? = "SELECT ID AS _id, *"
@@ -794,10 +798,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         }
 
     fun getAccessDns(dname: String?): Cursor {
-        val now: Long = Date().getTime()
+        val now: Long = Date().time
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
 
             // There is a segmented index on dns.qname
             // There is an index on access.daddr and access.block
@@ -806,7 +810,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
             query += " LEFT JOIN dns AS d"
             query += "   ON d.qname = a.daddr"
             query += " WHERE a.block >= 0"
-            query += " AND (d.time IS NULL OR d.time + d.ttl >= " + now + ")"
+            query += " AND (d.time IS NULL OR d.time + d.ttl >= $now)"
             if (dname != null) query += " AND a.daddr = ?"
             return db.rawQuery(query, if (dname == null) arrayOf() else arrayOf(dname))
         } finally {
@@ -818,10 +822,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun addForward(protocol: Int, dport: Int, raddr: String?, rport: Int, ruid: Int) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("protocol", protocol)
                 cv.put("dport", dport)
                 cv.put("raddr", raddr)
@@ -841,7 +845,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun deleteForward() {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 db.delete("forward", null, null)
@@ -858,10 +862,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun deleteForward(protocol: Int, dport: Int) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                db.delete("forward", "protocol = ? AND dport = ?", arrayOf(Integer.toString(protocol), Integer.toString(dport)))
+                db.delete("forward", "protocol = ? AND dport = ?", arrayOf(protocol.toString(), dport.toString()))
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -876,7 +880,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         get() {
             lock.readLock().lock()
             try {
-                val db: SQLiteDatabase = getReadableDatabase()
+                val db: SQLiteDatabase = readableDatabase
                 var query: String? = "SELECT ID AS _id, *"
                 query += " FROM forward"
                 query += " ORDER BY dport"
@@ -889,10 +893,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun addApp(packageName: String?, label: String?, system: Boolean, internet: Boolean, enabled: Boolean) {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
-                val cv: ContentValues = ContentValues()
+                val cv = ContentValues()
                 cv.put("package", packageName)
                 if (label == null) cv.putNull("label") else cv.put("label", label)
                 cv.put("system", if (system) 1 else 0)
@@ -911,10 +915,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun getApp(packageName: String): Cursor {
         lock.readLock().lock()
         try {
-            val db: SQLiteDatabase = getReadableDatabase()
+            val db: SQLiteDatabase = readableDatabase
 
             // There is an index on package
-            val query: String = "SELECT * FROM app WHERE package = ?"
+            val query = "SELECT * FROM app WHERE package = ?"
             return db.rawQuery(query, arrayOf(packageName))
         } finally {
             lock.readLock().unlock()
@@ -924,7 +928,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
     fun clearApps() {
         lock.writeLock().lock()
         try {
-            val db: SQLiteDatabase = getWritableDatabase()
+            val db: SQLiteDatabase = writableDatabase
             db.beginTransactionNonExclusive()
             try {
                 db.delete("app", null, null)
@@ -979,30 +983,29 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         handler!!.sendMessage(msg)
     }
 
-    open interface LogChangedListener {
+    interface LogChangedListener {
         fun onChanged()
     }
 
-    open interface AccessChangedListener {
+    interface AccessChangedListener {
         fun onChanged()
     }
 
-    open interface ForwardChangedListener {
+    interface ForwardChangedListener {
         fun onChanged()
     }
 
     init {
-        prefs = PreferenceManager.getDefaultSharedPreferences(context)
         if (!once) {
             once = true
             val dbfile: File = context.getDatabasePath(DB_NAME)
             if (dbfile.exists()) {
-                Log.w(TAG, "Deleting " + dbfile)
+                Log.w(TAG, "Deleting $dbfile")
                 dbfile.delete()
             }
-            val dbjournal: File = context.getDatabasePath(DB_NAME + "-journal")
+            val dbjournal: File = context.getDatabasePath("$DB_NAME-journal")
             if (dbjournal.exists()) {
-                Log.w(TAG, "Deleting " + dbjournal)
+                Log.w(TAG, "Deleting $dbjournal")
                 dbjournal.delete()
             }
         }

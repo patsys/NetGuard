@@ -21,19 +21,19 @@ import java.util.*
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class ResourceRecord constructor() {
+*/   class ResourceRecord {
     var Time: Long = 0
     var QName: String? = null
     var AName: String? = null
     var Resource: String? = null
     var TTL: Int = 0
-    public override fun toString(): String {
-        return (formatter.format(Date(Time).getTime()) +
+    override fun toString(): String {
+        return (formatter.format(Date(Time).time) +
                 " Q " + QName +
                 " A " + AName +
                 " R " + Resource +
                 " TTL " + TTL +
-                " " + formatter.format(Date(Time + TTL * 1000L).getTime()))
+                " " + formatter.format(Date(Time + TTL * 1000L).time))
     }
 
     companion object {

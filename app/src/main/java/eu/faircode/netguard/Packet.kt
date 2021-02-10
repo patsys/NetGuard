@@ -28,7 +28,7 @@ class Packet constructor() {
     var daddr: String? = null
     var dport: Int = 0
     var data: String? = null
-    var packetData: ByteArray
+    lateinit var packetData: ByteArray
     var uid: Int = 0
     var allowed: Boolean = false
     public override fun toString(): String {

@@ -1,14 +1,12 @@
 package eu.faircode.netguard
 
-import android.annotation.TargetApi
+import android.annotation.SuppressLint
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.TypedArray
 import android.database.Cursor
 import android.graphics.*
-import android.graphics.drawable.Drawable
 import android.net.*
-import android.os.AsyncTask
 import android.os.Build
 import android.provider.Settings
 import android.text.SpannableStringBuilder
@@ -22,15 +20,18 @@ import android.widget.AdapterView.OnItemClickListener
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.DrawableCompat
-import androidx.core.widget.CompoundButtonCompat
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.load.DecodeFormat
 import com.bumptech.glide.request.RequestOptions
 import eu.faircode.netguard.Util.DoubtListener
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 /*
    This file is part of NetGuard.
@@ -65,7 +66,7 @@ import java.util.*
         private set
     private var listAll: List<Rule?> = ArrayList()
     private var listFiltered: MutableList<Rule?> = ArrayList()
-    private val messaging: List<String?> = Arrays.asList(
+    private val messaging: List<String?> = listOf(
             "com.discord",
             "com.facebook.mlite",
             "com.facebook.orca",
@@ -76,119 +77,76 @@ import java.util.*
             "com.whatsapp",
             "com.whatsapp.w4b"
     )
-    private val download: List<String?> = Arrays.asList(
+    private val download: List<String?> = listOf(
             "com.google.android.youtube"
     )
+    val uiScope = CoroutineScope(Dispatchers.Main)
+
 
     class ViewHolder constructor(var view: View) : RecyclerView.ViewHolder(view) {
-        var llApplication: LinearLayout
-        var ivIcon: ImageView
-        var ivExpander: ImageView
-        var tvName: TextView
-        var tvHosts: TextView
-        var rlLockdown: RelativeLayout
-        var ivLockdown: ImageView
-        var cbWifi: CheckBox
-        var ivScreenWifi: ImageView
-        var cbOther: CheckBox
-        var ivScreenOther: ImageView
-        var tvRoaming: TextView
-        var tvRemarkMessaging: TextView
-        var tvRemarkDownload: TextView
-        var llConfiguration: LinearLayout
-        var tvUid: TextView
-        var tvPackage: TextView
-        var tvVersion: TextView
-        var tvInternet: TextView
-        var tvDisabled: TextView
-        var btnRelated: Button
-        var ibSettings: ImageButton
-        var ibLaunch: ImageButton
-        var cbApply: CheckBox
-        var llScreenWifi: LinearLayout
-        var ivWifiLegend: ImageView
-        var cbScreenWifi: CheckBox
-        var llScreenOther: LinearLayout
-        var ivOtherLegend: ImageView
-        var cbScreenOther: CheckBox
-        var cbRoaming: CheckBox
-        var cbLockdown: CheckBox
-        var ivLockdownLegend: ImageView
-        var btnClear: ImageButton
-        var llFilter: LinearLayout
-        var ivLive: ImageView
-        var tvLogging: TextView
-        var btnLogging: Button
-        var lvAccess: ListView
-        var btnClearAccess: ImageButton
-        var cbNotify: CheckBox
+        var llApplication: LinearLayout = itemView.findViewById(R.id.llApplication)
+        var ivIcon: ImageView = itemView.findViewById(R.id.ivIcon)
+        var ivExpander: ImageView = itemView.findViewById(R.id.ivExpander)
+        var tvName: TextView = itemView.findViewById(R.id.tvName)
+        var tvHosts: TextView = itemView.findViewById(R.id.tvHosts)
+        var rlLockdown: RelativeLayout = itemView.findViewById(R.id.rlLockdown)
+        var ivLockdown: ImageView = itemView.findViewById(R.id.ivLockdown)
+        var cbWifi: CheckBox = itemView.findViewById(R.id.cbWifi)
+        var ivScreenWifi: ImageView = itemView.findViewById(R.id.ivScreenWifi)
+        var cbOther: CheckBox = itemView.findViewById(R.id.cbOther)
+        var ivScreenOther: ImageView = itemView.findViewById(R.id.ivScreenOther)
+        var tvRoaming: TextView = itemView.findViewById(R.id.tvRoaming)
+        var tvRemarkMessaging: TextView = itemView.findViewById(R.id.tvRemarkMessaging)
+        var tvRemarkDownload: TextView = itemView.findViewById(R.id.tvRemarkDownload)
+        var llConfiguration: LinearLayout = itemView.findViewById(R.id.llConfiguration)
+        var tvUid: TextView = itemView.findViewById(R.id.tvUid)
+        var tvPackage: TextView = itemView.findViewById(R.id.tvPackage)
+        var tvVersion: TextView = itemView.findViewById(R.id.tvVersion)
+        var tvInternet: TextView = itemView.findViewById(R.id.tvInternet)
+        var tvDisabled: TextView = itemView.findViewById(R.id.tvDisabled)
+        var btnRelated: Button = itemView.findViewById(R.id.btnRelated)
+        var ibSettings: ImageButton = itemView.findViewById(R.id.ibSettings)
+        var ibLaunch: ImageButton = itemView.findViewById(R.id.ibLaunch)
+        var cbApply: CheckBox = itemView.findViewById(R.id.cbApply)
+        var llScreenWifi: LinearLayout = itemView.findViewById(R.id.llScreenWifi)
+        var ivWifiLegend: ImageView = itemView.findViewById(R.id.ivWifiLegend)
+        var cbScreenWifi: CheckBox = itemView.findViewById(R.id.cbScreenWifi)
+        var llScreenOther: LinearLayout = itemView.findViewById(R.id.llScreenOther)
+        var cbScreenOther: CheckBox = itemView.findViewById(R.id.cbScreenOther)
+        var cbRoaming: CheckBox = itemView.findViewById(R.id.cbRoaming)
+        var cbLockdown: CheckBox = itemView.findViewById(R.id.cbLockdown)
+        var ivLockdownLegend: ImageView = itemView.findViewById(R.id.ivLockdownLegend)
+        var btnClear: ImageButton = itemView.findViewById(R.id.btnClear)
+        var llFilter: LinearLayout = itemView.findViewById(R.id.llFilter)
+        var ivLive: ImageView = itemView.findViewById(R.id.ivLive)
+        var tvLogging: TextView = itemView.findViewById(R.id.tvLogging)
+        var btnLogging: Button = itemView.findViewById(R.id.btnLogging)
+        var lvAccess: ListView = itemView.findViewById(R.id.lvAccess)
+        var btnClearAccess: ImageButton = itemView.findViewById(R.id.btnClearAccess)
+        var cbNotify: CheckBox = itemView.findViewById(R.id.cbNotify)
+        val uiScope = CoroutineScope(Dispatchers.Main)
 
         init {
-            llApplication = itemView.findViewById(R.id.llApplication)
-            ivIcon = itemView.findViewById(R.id.ivIcon)
-            ivExpander = itemView.findViewById(R.id.ivExpander)
-            tvName = itemView.findViewById(R.id.tvName)
-            tvHosts = itemView.findViewById(R.id.tvHosts)
-            rlLockdown = itemView.findViewById(R.id.rlLockdown)
-            ivLockdown = itemView.findViewById(R.id.ivLockdown)
-            cbWifi = itemView.findViewById(R.id.cbWifi)
-            ivScreenWifi = itemView.findViewById(R.id.ivScreenWifi)
-            cbOther = itemView.findViewById(R.id.cbOther)
-            ivScreenOther = itemView.findViewById(R.id.ivScreenOther)
-            tvRoaming = itemView.findViewById(R.id.tvRoaming)
-            tvRemarkMessaging = itemView.findViewById(R.id.tvRemarkMessaging)
-            tvRemarkDownload = itemView.findViewById(R.id.tvRemarkDownload)
-            llConfiguration = itemView.findViewById(R.id.llConfiguration)
-            tvUid = itemView.findViewById(R.id.tvUid)
-            tvPackage = itemView.findViewById(R.id.tvPackage)
-            tvVersion = itemView.findViewById(R.id.tvVersion)
-            tvInternet = itemView.findViewById(R.id.tvInternet)
-            tvDisabled = itemView.findViewById(R.id.tvDisabled)
-            btnRelated = itemView.findViewById(R.id.btnRelated)
-            ibSettings = itemView.findViewById(R.id.ibSettings)
-            ibLaunch = itemView.findViewById(R.id.ibLaunch)
-            cbApply = itemView.findViewById(R.id.cbApply)
-            llScreenWifi = itemView.findViewById(R.id.llScreenWifi)
-            ivWifiLegend = itemView.findViewById(R.id.ivWifiLegend)
-            cbScreenWifi = itemView.findViewById(R.id.cbScreenWifi)
-            llScreenOther = itemView.findViewById(R.id.llScreenOther)
-            ivOtherLegend = itemView.findViewById(R.id.ivOtherLegend)
-            cbScreenOther = itemView.findViewById(R.id.cbScreenOther)
-            cbRoaming = itemView.findViewById(R.id.cbRoaming)
-            cbLockdown = itemView.findViewById(R.id.cbLockdown)
-            ivLockdownLegend = itemView.findViewById(R.id.ivLockdownLegend)
-            btnClear = itemView.findViewById(R.id.btnClear)
-            llFilter = itemView.findViewById(R.id.llFilter)
-            ivLive = itemView.findViewById(R.id.ivLive)
-            tvLogging = itemView.findViewById(R.id.tvLogging)
-            btnLogging = itemView.findViewById(R.id.btnLogging)
-            lvAccess = itemView.findViewById(R.id.lvAccess)
-            btnClearAccess = itemView.findViewById(R.id.btnClearAccess)
-            cbNotify = itemView.findViewById(R.id.cbNotify)
-            val wifiParent: View = cbWifi.getParent() as View
-            wifiParent.post(object : Runnable {
-                public override fun run() {
-                    val rect: Rect = Rect()
-                    cbWifi.getHitRect(rect)
-                    rect.bottom += rect.top
-                    rect.right += rect.left
-                    rect.top = 0
-                    rect.left = 0
-                    wifiParent.setTouchDelegate(TouchDelegate(rect, cbWifi))
-                }
-            })
-            val otherParent: View = cbOther.getParent() as View
-            otherParent.post(object : Runnable {
-                public override fun run() {
-                    val rect: Rect = Rect()
-                    cbOther.getHitRect(rect)
-                    rect.bottom += rect.top
-                    rect.right += rect.left
-                    rect.top = 0
-                    rect.left = 0
-                    otherParent.setTouchDelegate(TouchDelegate(rect, cbOther))
-                }
-            })
+            val wifiParent: View = cbWifi.parent as View
+            wifiParent.post {
+                val rect = Rect()
+                cbWifi.getHitRect(rect)
+                rect.bottom += rect.top
+                rect.right += rect.left
+                rect.top = 0
+                rect.left = 0
+                wifiParent.touchDelegate = TouchDelegate(rect, cbWifi)
+            }
+            val otherParent: View = cbOther.parent as View
+            otherParent.post {
+                val rect = Rect()
+                cbOther.getHitRect(rect)
+                rect.bottom += rect.top
+                rect.right += rect.left
+                rect.top = 0
+                rect.left = 0
+                otherParent.touchDelegate = TouchDelegate(rect, cbOther)
+            }
         }
     }
 
@@ -217,33 +175,32 @@ import java.util.*
         notifyDataSetChanged()
     }
 
-    public override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
+    override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         rv = recyclerView
     }
 
-    public override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
+    override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         super.onDetachedFromRecyclerView(recyclerView)
         rv = null
     }
 
-    public override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val context: Context = holder.itemView.getContext()
+    @SuppressLint("SetTextI18n")
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val context: Context = holder.itemView.context
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         val log_app: Boolean = prefs.getBoolean("log_app", false)
         val filter: Boolean = prefs.getBoolean("filter", false)
         val notify_access: Boolean = prefs.getBoolean("notify_access", false)
 
         // Get rule
-        val rule: Rule? = listFiltered.get(position)
+        val rule: Rule? = listFiltered[position]
 
         // Handle expanding/collapsing
-        holder.llApplication.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(view: View) {
-                rule!!.expanded = !rule.expanded
-                notifyItemChanged(holder.getAdapterPosition())
-            }
-        })
+        holder.llApplication.setOnClickListener {
+            rule!!.expanded = !rule.expanded
+            notifyItemChanged(holder.adapterPosition)
+        }
 
         // Show if non default rules
         holder.itemView.setBackgroundColor(if (rule!!.changed) colorChanged else Color.TRANSPARENT)
@@ -254,7 +211,7 @@ import java.util.*
         // Show application icon
         if (rule.icon <= 0) holder.ivIcon.setImageResource(android.R.drawable.sym_def_app_icon) else {
             val uri: Uri = Uri.parse("android.resource://" + rule.packageName + "/" + rule.icon)
-            GlideApp.with(holder.itemView.getContext())
+            GlideApp.with(holder.itemView.context)
                     .applyDefaultRequestOptions(RequestOptions().format(DecodeFormat.PREFER_RGB_565))
                     .load(uri) //.diskCacheStrategy(DiskCacheStrategy.NONE)
                     //.skipMemoryCache(true)
@@ -263,287 +220,216 @@ import java.util.*
         }
 
         // Show application label
-        holder.tvName.setText(rule.name)
+        holder.tvName.text = rule.name
 
         // Show application state
         var color: Int = if (rule.system) colorOff else colorText
         if (!rule.internet || !rule.enabled) color = Color.argb(128, Color.red(color), Color.green(color), Color.blue(color))
         holder.tvName.setTextColor(color)
-        holder.tvHosts.setVisibility(if (rule.hosts > 0) View.VISIBLE else View.GONE)
-        holder.tvHosts.setText(java.lang.Long.toString(rule.hosts))
+        holder.tvHosts.visibility = if (rule.hosts > 0) View.VISIBLE else View.GONE
+        holder.tvHosts.text = rule.hosts.toString()
 
         // Lockdown settings
         var lockdown: Boolean = prefs.getBoolean("lockdown", false)
         val lockdown_wifi: Boolean = prefs.getBoolean("lockdown_wifi", true)
         val lockdown_other: Boolean = prefs.getBoolean("lockdown_other", true)
         if ((otherActive && !lockdown_other) || (wifiActive && !lockdown_wifi)) lockdown = false
-        holder.rlLockdown.setVisibility(if (lockdown && !rule.lockdown) View.VISIBLE else View.GONE)
-        holder.ivLockdown.setEnabled(rule.apply)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivLockdown.getDrawable())
-            DrawableCompat.setTint(wrap, if (rule.apply) colorOff else colorGrayed)
-        }
+        holder.rlLockdown.visibility = if (lockdown && !rule.lockdown) View.VISIBLE else View.GONE
+        holder.ivLockdown.isEnabled = rule.apply
         val screen_on: Boolean = prefs.getBoolean("screen_on", true)
 
         // Wi-Fi settings
-        holder.cbWifi.setEnabled(rule.apply)
-        holder.cbWifi.setAlpha(if (wifiActive) 1 else 0.5f)
+        holder.cbWifi.isEnabled = rule.apply
+        holder.cbWifi.alpha = if (wifiActive) 1f else 0.5f
         holder.cbWifi.setOnCheckedChangeListener(null)
-        holder.cbWifi.setChecked(rule.wifi_blocked)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap((CompoundButtonCompat.getButtonDrawable(holder.cbWifi))!!)
-            DrawableCompat.setTint(wrap, if (rule.apply) (if (rule.wifi_blocked) colorOff else colorOn) else colorGrayed)
+        holder.cbWifi.isChecked = rule.wifi_blocked
+        holder.cbWifi.setOnCheckedChangeListener { _, isChecked ->
+            rule.wifi_blocked = isChecked
+            updateRule(context, rule, true, listAll)
         }
-        holder.cbWifi.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(compoundButton: CompoundButton, isChecked: Boolean) {
-                rule.wifi_blocked = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
-        holder.ivScreenWifi.setEnabled(rule.apply)
-        holder.ivScreenWifi.setAlpha(if (wifiActive) 1 else 0.5f)
-        holder.ivScreenWifi.setVisibility(if (rule.screen_wifi && rule.wifi_blocked) View.VISIBLE else View.INVISIBLE)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivScreenWifi.getDrawable())
-            DrawableCompat.setTint(wrap, if (rule.apply) colorOn else colorGrayed)
-        }
+        holder.ivScreenWifi.isEnabled = rule.apply
+        holder.ivScreenWifi.alpha = if (wifiActive) 1f else 0.5f
+        holder.ivScreenWifi.visibility = if (rule.screen_wifi && rule.wifi_blocked) View.VISIBLE else View.INVISIBLE
 
         // Mobile settings
-        holder.cbOther.setEnabled(rule.apply)
-        holder.cbOther.setAlpha(if (otherActive) 1 else 0.5f)
+        holder.cbOther.isEnabled = rule.apply
+        holder.cbOther.alpha = if (otherActive) 1f else 0.5f
         holder.cbOther.setOnCheckedChangeListener(null)
-        holder.cbOther.setChecked(rule.other_blocked)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap((CompoundButtonCompat.getButtonDrawable(holder.cbOther))!!)
-            DrawableCompat.setTint(wrap, if (rule.apply) (if (rule.other_blocked) colorOff else colorOn) else colorGrayed)
+        holder.cbOther.isChecked = rule.other_blocked
+        holder.cbOther.setOnCheckedChangeListener { _, isChecked ->
+            rule.other_blocked = isChecked
+            updateRule(context, rule, true, listAll)
         }
-        holder.cbOther.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(compoundButton: CompoundButton, isChecked: Boolean) {
-                rule.other_blocked = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
-        holder.ivScreenOther.setEnabled(rule.apply)
-        holder.ivScreenOther.setAlpha(if (otherActive) 1 else 0.5f)
-        holder.ivScreenOther.setVisibility(if (rule.screen_other && rule.other_blocked) View.VISIBLE else View.INVISIBLE)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivScreenOther.getDrawable())
-            DrawableCompat.setTint(wrap, if (rule.apply) colorOn else colorGrayed)
-        }
+        holder.ivScreenOther.isEnabled = rule.apply
+        holder.ivScreenOther.alpha = if (otherActive) 1f else 0.5f
+        holder.ivScreenOther.visibility = if (rule.screen_other && rule.other_blocked) View.VISIBLE else View.INVISIBLE
         holder.tvRoaming.setTextColor(if (rule.apply) colorOff else colorGrayed)
-        holder.tvRoaming.setAlpha(if (otherActive) 1 else 0.5f)
-        holder.tvRoaming.setVisibility(if (rule.roaming && (!rule.other_blocked || rule.screen_other)) View.VISIBLE else View.INVISIBLE)
-        holder.tvRemarkMessaging.setVisibility(if (messaging.contains(rule.packageName)) View.VISIBLE else View.GONE)
-        holder.tvRemarkDownload.setVisibility(if (download.contains(rule.packageName)) View.VISIBLE else View.GONE)
+        holder.tvRoaming.alpha = if (otherActive) 1f else 0.5f
+        holder.tvRoaming.visibility = if (rule.roaming && (!rule.other_blocked || rule.screen_other)) View.VISIBLE else View.INVISIBLE
+        holder.tvRemarkMessaging.visibility = if (messaging.contains(rule.packageName)) View.VISIBLE else View.GONE
+        holder.tvRemarkDownload.visibility = if (download.contains(rule.packageName)) View.VISIBLE else View.GONE
 
         // Expanded configuration section
-        holder.llConfiguration.setVisibility(if (rule.expanded) View.VISIBLE else View.GONE)
+        holder.llConfiguration.visibility = if (rule.expanded) View.VISIBLE else View.GONE
 
         // Show application details
-        holder.tvUid.setText(Integer.toString(rule.uid))
-        holder.tvPackage.setText(rule.packageName)
-        holder.tvVersion.setText(rule.version)
+        holder.tvUid.text = rule.uid.toString()
+        holder.tvPackage.text = rule.packageName
+        holder.tvVersion.text = rule.version
 
         // Show application state
-        holder.tvInternet.setVisibility(if (rule.internet) View.GONE else View.VISIBLE)
-        holder.tvDisabled.setVisibility(if (rule.enabled) View.GONE else View.VISIBLE)
+        holder.tvInternet.visibility = if (rule.internet) View.GONE else View.VISIBLE
+        holder.tvDisabled.visibility = if (rule.enabled) View.GONE else View.VISIBLE
 
         // Show related
-        holder.btnRelated.setVisibility(if (rule.relateduids) View.VISIBLE else View.GONE)
-        holder.btnRelated.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(view: View) {
-                val main: Intent = Intent(context, ActivityMain::class.java)
-                main.putExtra(ActivityMain.Companion.EXTRA_SEARCH, Integer.toString(rule.uid))
-                main.putExtra(ActivityMain.Companion.EXTRA_RELATED, true)
-                context.startActivity(main)
-            }
-        })
+        holder.btnRelated.visibility = if (rule.relateduids) View.VISIBLE else View.GONE
+        holder.btnRelated.setOnClickListener {
+            val main = Intent(context, ActivityMain::class.java)
+            main.putExtra(ActivityMain.EXTRA_SEARCH, rule.uid.toString())
+            main.putExtra(ActivityMain.EXTRA_RELATED, true)
+            context.startActivity(main)
+        }
 
         // Launch application settings
         if (rule.expanded) {
-            val intent: Intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-            intent.setData(Uri.parse("package:" + rule.packageName))
-            val settings: Intent? = (if (intent.resolveActivity(context.getPackageManager()) == null) null else intent)
-            holder.ibSettings.setVisibility(if (settings == null) View.GONE else View.VISIBLE)
-            holder.ibSettings.setOnClickListener(object : View.OnClickListener {
-                public override fun onClick(view: View) {
-                    context.startActivity(settings)
-                }
-            })
-        } else holder.ibSettings.setVisibility(View.GONE)
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.parse("package:" + rule.packageName)
+            val settings: Intent? = (if (intent.resolveActivity(context.packageManager) == null) null else intent)
+            holder.ibSettings.visibility = if (settings == null) View.GONE else View.VISIBLE
+            holder.ibSettings.setOnClickListener { context.startActivity(settings) }
+        } else holder.ibSettings.visibility = View.GONE
 
         // Launch application
         if (rule.expanded) {
-            val intent: Intent? = context.getPackageManager().getLaunchIntentForPackage(rule.packageName)
-            val launch: Intent? = (if (intent == null ||
-                    intent.resolveActivity(context.getPackageManager()) == null) null else intent)
-            holder.ibLaunch.setVisibility(if (launch == null) View.GONE else View.VISIBLE)
-            holder.ibLaunch.setOnClickListener(object : View.OnClickListener {
-                public override fun onClick(view: View) {
-                    context.startActivity(launch)
-                }
-            })
-        } else holder.ibLaunch.setVisibility(View.GONE)
+            val intent: Intent? = context.packageManager.getLaunchIntentForPackage(rule.packageName)
+            val launch: Intent? = (if (intent?.resolveActivity(context.packageManager) == null) null else intent)
+            holder.ibLaunch.visibility = if (launch == null) View.GONE else View.VISIBLE
+            holder.ibLaunch.setOnClickListener { context.startActivity(launch) }
+        } else holder.ibLaunch.visibility = View.GONE
 
         // Apply
-        holder.cbApply.setEnabled(rule.pkg && filter)
+        holder.cbApply.isEnabled = rule.pkg && filter
         holder.cbApply.setOnCheckedChangeListener(null)
-        holder.cbApply.setChecked(rule.apply)
-        holder.cbApply.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(compoundButton: CompoundButton, isChecked: Boolean) {
-                rule.apply = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
+        holder.cbApply.isChecked = rule.apply
+        holder.cbApply.setOnCheckedChangeListener { _, isChecked ->
+            rule.apply = isChecked
+            updateRule(context, rule, true, listAll)
+        }
 
         // Show Wi-Fi screen on condition
-        holder.llScreenWifi.setVisibility(if (screen_on) View.VISIBLE else View.GONE)
-        holder.cbScreenWifi.setEnabled(rule.wifi_blocked && rule.apply)
+        holder.llScreenWifi.visibility = if (screen_on) View.VISIBLE else View.GONE
+        holder.cbScreenWifi.isEnabled = rule.wifi_blocked && rule.apply
         holder.cbScreenWifi.setOnCheckedChangeListener(null)
-        holder.cbScreenWifi.setChecked(rule.screen_wifi)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivWifiLegend.getDrawable())
-            DrawableCompat.setTint(wrap, colorOn)
+        holder.cbScreenWifi.isChecked = rule.screen_wifi
+        holder.cbScreenWifi.setOnCheckedChangeListener { _, isChecked ->
+            rule.screen_wifi = isChecked
+            updateRule(context, rule, true, listAll)
         }
-        holder.cbScreenWifi.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
-                rule.screen_wifi = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
 
         // Show mobile screen on condition
-        holder.llScreenOther.setVisibility(if (screen_on) View.VISIBLE else View.GONE)
-        holder.cbScreenOther.setEnabled(rule.other_blocked && rule.apply)
+        holder.llScreenOther.visibility = if (screen_on) View.VISIBLE else View.GONE
+        holder.cbScreenOther.isEnabled = rule.other_blocked && rule.apply
         holder.cbScreenOther.setOnCheckedChangeListener(null)
-        holder.cbScreenOther.setChecked(rule.screen_other)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivOtherLegend.getDrawable())
-            DrawableCompat.setTint(wrap, colorOn)
+        holder.cbScreenOther.isChecked = rule.screen_other
+        holder.cbScreenOther.setOnCheckedChangeListener { _, isChecked ->
+            rule.screen_other = isChecked
+            updateRule(context, rule, true, listAll)
         }
-        holder.cbScreenOther.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
-                rule.screen_other = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
 
         // Show roaming condition
-        holder.cbRoaming.setEnabled((!rule.other_blocked || rule.screen_other) && rule.apply)
+        holder.cbRoaming.isEnabled = (!rule.other_blocked || rule.screen_other) && rule.apply
         holder.cbRoaming.setOnCheckedChangeListener(null)
-        holder.cbRoaming.setChecked(rule.roaming)
-        holder.cbRoaming.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            @TargetApi(Build.VERSION_CODES.M)
-            public override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
-                rule.roaming = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
+        holder.cbRoaming.isChecked = rule.roaming
+        holder.cbRoaming.setOnCheckedChangeListener { _, isChecked ->
+            rule.roaming = isChecked
+            updateRule(context, rule, true, listAll)
+        }
 
         // Show lockdown
-        holder.cbLockdown.setEnabled(rule.apply)
+        holder.cbLockdown.isEnabled = rule.apply
         holder.cbLockdown.setOnCheckedChangeListener(null)
-        holder.cbLockdown.setChecked(rule.lockdown)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-            val wrap: Drawable = DrawableCompat.wrap(holder.ivLockdownLegend.getDrawable())
-            DrawableCompat.setTint(wrap, colorOn)
+        holder.cbLockdown.isChecked = rule.lockdown
+        holder.cbLockdown.setOnCheckedChangeListener { _, isChecked ->
+            rule.lockdown = isChecked
+            updateRule(context, rule, true, listAll)
         }
-        holder.cbLockdown.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            @TargetApi(Build.VERSION_CODES.M)
-            public override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {
-                rule.lockdown = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
 
         // Reset rule
-        holder.btnClear.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(view: View) {
-                Util.areYouSure(view.getContext(), R.string.msg_clear_rules, object : DoubtListener {
-                    public override fun onSure() {
-                        holder.cbApply.setChecked(true)
-                        holder.cbWifi.setChecked(rule.wifi_default)
-                        holder.cbOther.setChecked(rule.other_default)
-                        holder.cbScreenWifi.setChecked(rule.screen_wifi_default)
-                        holder.cbScreenOther.setChecked(rule.screen_other_default)
-                        holder.cbRoaming.setChecked(rule.roaming_default)
-                        holder.cbLockdown.setChecked(false)
-                    }
-                })
-            }
-        })
-        holder.llFilter.setVisibility(if (Util.canFilter(context)) View.VISIBLE else View.GONE)
+        holder.btnClear.setOnClickListener { view ->
+            Util.areYouSure(view.context, R.string.msg_clear_rules, object : DoubtListener {
+                override fun onSure() {
+                    holder.cbApply.isChecked = true
+                    holder.cbWifi.isChecked = rule.wifi_default
+                    holder.cbOther.isChecked = rule.other_default
+                    holder.cbScreenWifi.isChecked = rule.screen_wifi_default
+                    holder.cbScreenOther.isChecked = rule.screen_other_default
+                    holder.cbRoaming.isChecked = rule.roaming_default
+                    holder.cbLockdown.isChecked = false
+                }
+            })
+        }
+        holder.llFilter.visibility = if (Util.canFilter()) View.VISIBLE else View.GONE
 
         // Live
-        holder.ivLive.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(view: View) {
-                isLive = !isLive
-                val tv: TypedValue = TypedValue()
-                view.getContext().getTheme().resolveAttribute(if (isLive) R.attr.iconPause else R.attr.iconPlay, tv, true)
-                holder.ivLive.setImageResource(tv.resourceId)
-                if (isLive) notifyDataSetChanged()
-            }
-        })
+        holder.ivLive.setOnClickListener { view ->
+            isLive = !isLive
+            val tv = TypedValue()
+            view.context.theme.resolveAttribute(if (isLive) R.attr.iconPause else R.attr.iconPlay, tv, true)
+            holder.ivLive.setImageResource(tv.resourceId)
+            if (isLive) notifyDataSetChanged()
+        }
 
         // Show logging/filtering is disabled
         holder.tvLogging.setText(if (log_app && filter) R.string.title_logging_enabled else R.string.title_logging_disabled)
-        holder.btnLogging.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(v: View) {
-                val inflater: LayoutInflater = LayoutInflater.from(context)
-                val view: View = inflater.inflate(R.layout.enable, null, false)
-                val cbLogging: CheckBox = view.findViewById(R.id.cbLogging)
-                val cbFiltering: CheckBox = view.findViewById(R.id.cbFiltering)
-                val cbNotify: CheckBox = view.findViewById(R.id.cbNotify)
-                val tvFilter4: TextView = view.findViewById(R.id.tvFilter4)
-                cbLogging.setChecked(log_app)
-                cbFiltering.setChecked(filter)
-                cbFiltering.setEnabled(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-                tvFilter4.setVisibility(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) View.GONE else View.VISIBLE)
-                cbNotify.setChecked(notify_access)
-                cbNotify.setEnabled(log_app)
-                cbLogging.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-                    public override fun onCheckedChanged(compoundButton: CompoundButton, checked: Boolean) {
-                        prefs.edit().putBoolean("log_app", checked).apply()
-                        cbNotify.setEnabled(checked)
-                        if (!checked) {
-                            cbNotify.setChecked(false)
-                            prefs.edit().putBoolean("notify_access", false).apply()
-                            ServiceSinkhole.Companion.reload("changed notify", context, false)
-                        }
-                        notifyDataSetChanged()
-                    }
-                })
-                cbFiltering.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-                    public override fun onCheckedChanged(compoundButton: CompoundButton, checked: Boolean) {
-                        if (checked) cbLogging.setChecked(true)
-                        prefs.edit().putBoolean("filter", checked).apply()
-                        ServiceSinkhole.Companion.reload("changed filter", context, false)
-                        notifyDataSetChanged()
-                    }
-                })
-                cbNotify.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-                    public override fun onCheckedChanged(compoundButton: CompoundButton, checked: Boolean) {
-                        prefs.edit().putBoolean("notify_access", checked).apply()
-                        ServiceSinkhole.Companion.reload("changed notify", context, false)
-                        notifyDataSetChanged()
-                    }
-                })
-                val dialog: AlertDialog = AlertDialog.Builder(context)
-                        .setView(view)
-                        .setCancelable(true)
-                        .create()
-                dialog.show()
+        holder.btnLogging.setOnClickListener {
+            val inflater: LayoutInflater = LayoutInflater.from(context)
+            val view: View = inflater.inflate(R.layout.enable, null, false)
+            val cbLogging: CheckBox = view.findViewById(R.id.cbLogging)
+            val cbFiltering: CheckBox = view.findViewById(R.id.cbFiltering)
+            val cbNotify: CheckBox = view.findViewById(R.id.cbNotify)
+            val tvFilter4: TextView = view.findViewById(R.id.tvFilter4)
+            cbLogging.isChecked = log_app
+            cbFiltering.isChecked = filter
+            cbFiltering.isEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+            tvFilter4.visibility = View.GONE
+            cbNotify.isChecked = notify_access
+            cbNotify.isEnabled = log_app
+            cbLogging.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("log_app", checked).apply()
+                cbNotify.isEnabled = checked
+                if (!checked) {
+                    cbNotify.isChecked = false
+                    prefs.edit().putBoolean("notify_access", false).apply()
+                    ServiceSinkhole.reload("changed notify", context, false)
+                }
+                notifyDataSetChanged()
             }
-        })
+            cbFiltering.setOnCheckedChangeListener { _, checked ->
+                if (checked) cbLogging.isChecked = true
+                prefs.edit().putBoolean("filter", checked).apply()
+                ServiceSinkhole.reload("changed filter", context, false)
+                notifyDataSetChanged()
+            }
+            cbNotify.setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("notify_access", checked).apply()
+                ServiceSinkhole.reload("changed notify", context, false)
+                notifyDataSetChanged()
+            }
+            val dialog: AlertDialog = AlertDialog.Builder(context)
+                    .setView(view)
+                    .setCancelable(true)
+                    .create()
+            dialog.show()
+        }
 
         // Show access rules
         if (rule.expanded) {
             // Access the database when expanded only
-            val badapter: AdapterAccess = AdapterAccess(context,
-                    DatabaseHelper.Companion.getInstance(context)!!.getAccess(rule.uid))
-            holder.lvAccess.setOnItemClickListener(object : OnItemClickListener {
-                public override fun onItemClick(parent: AdapterView<*>?, view: View, bposition: Int, bid: Long) {
-                    val pm: PackageManager = context.getPackageManager()
+            val badapter = AdapterAccess(context,
+                    DatabaseHelper.getInstance(context).getAccess(rule.uid))
+            holder.lvAccess.onItemClickListener = object : OnItemClickListener {
+                override fun onItemClick(parent: AdapterView<*>?, view: View, bposition: Int, bid: Long) {
+                    val pm: PackageManager = context.packageManager
                     val cursor: Cursor = badapter.getItem(bposition) as Cursor
                     val id: Long = cursor.getLong(cursor.getColumnIndex("ID"))
                     val version: Int = cursor.getInt(cursor.getColumnIndex("version"))
@@ -552,40 +438,38 @@ import java.util.*
                     val dport: Int = cursor.getInt(cursor.getColumnIndex("dport"))
                     val time: Long = cursor.getLong(cursor.getColumnIndex("time"))
                     val block: Int = cursor.getInt(cursor.getColumnIndex("block"))
-                    val popup: PopupMenu = PopupMenu(context, anchor)
+                    val popup = PopupMenu(context, anchor)
                     popup.inflate(R.menu.access)
-                    popup.getMenu().findItem(R.id.menu_host).setTitle(
-                            (Util.getProtocolName(protocol, version, false) + " " +
-                                    daddr + (if (dport > 0) "/" + dport else "")))
-                    val sub: SubMenu = popup.getMenu().findItem(R.id.menu_host).getSubMenu()
-                    var multiple: Boolean = false
+                    popup.menu.findItem(R.id.menu_host).title = (Util.getProtocolName(protocol, version, false) + " " +
+                            daddr + (if (dport > 0) "/$dport" else ""))
+                    val sub: SubMenu = popup.menu.findItem(R.id.menu_host).subMenu
+                    var multiple = false
                     var alt: Cursor? = null
                     try {
-                        alt = DatabaseHelper.Companion.getInstance(context)!!.getAlternateQNames(daddr)
+                        alt = DatabaseHelper.getInstance(context).getAlternateQNames(daddr)
                         while (alt.moveToNext()) {
                             multiple = true
-                            sub.add(Menu.NONE, Menu.NONE, 0, alt.getString(0)).setEnabled(false)
+                            sub.add(Menu.NONE, Menu.NONE, 0, alt.getString(0)).isEnabled = false
                         }
                     } finally {
-                        if (alt != null) alt.close()
+                        alt?.close()
                     }
-                    popup.getMenu().findItem(R.id.menu_host).setEnabled(multiple)
-                    markPro(context, popup.getMenu().findItem(R.id.menu_allow), ActivityPro.Companion.SKU_FILTER)
-                    markPro(context, popup.getMenu().findItem(R.id.menu_block), ActivityPro.Companion.SKU_FILTER)
+                    popup.menu.findItem(R.id.menu_host).isEnabled = multiple
+                    markPro(context, popup.menu.findItem(R.id.menu_allow), ActivityPro.SKU_FILTER)
+                    markPro(context, popup.menu.findItem(R.id.menu_block), ActivityPro.SKU_FILTER)
 
                     // Whois
-                    val lookupIP: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.dnslytics.com/whois-lookup/" + daddr))
-                    if (pm.resolveActivity(lookupIP, 0) == null) popup.getMenu().removeItem(R.id.menu_whois) else popup.getMenu().findItem(R.id.menu_whois).setTitle(context.getString(R.string.title_log_whois, daddr))
+                    val lookupIP = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.dnslytics.com/whois-lookup/$daddr"))
+                    if (pm.resolveActivity(lookupIP, 0) == null) popup.menu.removeItem(R.id.menu_whois) else popup.menu.findItem(R.id.menu_whois).title = context.getString(R.string.title_log_whois, daddr)
 
                     // Lookup port
-                    val lookupPort: Intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.speedguide.net/port.php?port=" + dport))
-                    if (dport <= 0 || pm.resolveActivity(lookupPort, 0) == null) popup.getMenu().removeItem(R.id.menu_port) else popup.getMenu().findItem(R.id.menu_port).setTitle(context.getString(R.string.title_log_port, dport))
-                    popup.getMenu().findItem(R.id.menu_time).setTitle(
-                            SimpleDateFormat.getDateTimeInstance().format(time))
+                    val lookupPort = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.speedguide.net/port.php?port=$dport"))
+                    if (dport <= 0 || pm.resolveActivity(lookupPort, 0) == null) popup.menu.removeItem(R.id.menu_port) else popup.menu.findItem(R.id.menu_port).title = context.getString(R.string.title_log_port, dport)
+                    popup.menu.findItem(R.id.menu_time).title = SimpleDateFormat.getDateTimeInstance().format(time)
                     popup.setOnMenuItemClickListener(object : PopupMenu.OnMenuItemClickListener {
-                        public override fun onMenuItemClick(menuItem: MenuItem): Boolean {
-                            val menu: Int = menuItem.getItemId()
-                            var result: Boolean = false
+                        override fun onMenuItemClick(menuItem: MenuItem): Boolean {
+                            val menu: Int = menuItem.itemId
+                            var result = false
                             when (menu) {
                                 R.id.menu_whois -> {
                                     context.startActivity(lookupIP)
@@ -596,22 +480,22 @@ import java.util.*
                                     result = true
                                 }
                                 R.id.menu_allow -> {
-                                    if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_FILTER, context)) {
-                                        DatabaseHelper.Companion.getInstance(context)!!.setAccess(id, 0)
-                                        ServiceSinkhole.Companion.reload("allow host", context, false)
+                                    if (IAB.isPurchased(ActivityPro.SKU_FILTER, context)) {
+                                        DatabaseHelper.getInstance(context).setAccess(id, 0)
+                                        ServiceSinkhole.reload("allow host", context, false)
                                     } else context.startActivity(Intent(context, ActivityPro::class.java))
                                     result = true
                                 }
                                 R.id.menu_block -> {
-                                    if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_FILTER, context)) {
-                                        DatabaseHelper.Companion.getInstance(context)!!.setAccess(id, 1)
-                                        ServiceSinkhole.Companion.reload("block host", context, false)
+                                    if (IAB.isPurchased(ActivityPro.SKU_FILTER, context)) {
+                                        DatabaseHelper.getInstance(context).setAccess(id, 1)
+                                        ServiceSinkhole.reload("block host", context, false)
                                     } else context.startActivity(Intent(context, ActivityPro::class.java))
                                     result = true
                                 }
                                 R.id.menu_reset -> {
-                                    DatabaseHelper.Companion.getInstance(context)!!.setAccess(id, -1)
-                                    ServiceSinkhole.Companion.reload("reset host", context, false)
+                                    DatabaseHelper.getInstance(context).setAccess(id, -1)
+                                    ServiceSinkhole.reload("reset host", context, false)
                                     result = true
                                 }
                                 R.id.menu_copy -> {
@@ -621,74 +505,69 @@ import java.util.*
                                     return true
                                 }
                             }
-                            if ((menu == R.id.menu_allow) || (menu == R.id.menu_block) || (menu == R.id.menu_reset)) object : AsyncTask<Any?, Any?, Long>() {
-                                protected override fun doInBackground(vararg objects: Any): Long {
-                                    return DatabaseHelper.Companion.getInstance(context)!!.getHostCount(rule.uid, false)
+                            if ((menu == R.id.menu_allow) || (menu == R.id.menu_block) || (menu == R.id.menu_reset)) uiScope.launch {
+                                withContext(Dispatchers.Default) {
+                                    val hosts = DatabaseHelper.getInstance(context).getHostCount(rule.uid, false)
+                                    withContext(Dispatchers.Main) {
+                                        rule.hosts = hosts
+                                        notifyDataSetChanged()
+                                    }
                                 }
-
-                                override fun onPostExecute(hosts: Long) {
-                                    rule.hosts = hosts
-                                    notifyDataSetChanged()
-                                }
-                            }.execute()
+                            }
                             return result
                         }
                     })
-                    if (block == 0) popup.getMenu().removeItem(R.id.menu_allow) else if (block == 1) popup.getMenu().removeItem(R.id.menu_block)
+                    if (block == 0) popup.menu.removeItem(R.id.menu_allow) else if (block == 1) popup.menu.removeItem(R.id.menu_block)
                     popup.show()
                 }
-            })
-            holder.lvAccess.setAdapter(badapter)
+            }
+            holder.lvAccess.adapter = badapter
         } else {
-            holder.lvAccess.setAdapter(null)
-            holder.lvAccess.setOnItemClickListener(null)
+            holder.lvAccess.adapter = null
+            holder.lvAccess.onItemClickListener = null
         }
 
         // Clear access log
-        holder.btnClearAccess.setOnClickListener(object : View.OnClickListener {
-            public override fun onClick(view: View) {
-                Util.areYouSure(view.getContext(), R.string.msg_reset_access, object : DoubtListener {
-                    public override fun onSure() {
-                        DatabaseHelper.Companion.getInstance(context)!!.clearAccess(rule.uid, true)
-                        if (!isLive) notifyDataSetChanged()
-                        if (rv != null) rv!!.scrollToPosition(holder.getAdapterPosition())
-                    }
-                })
-            }
-        })
+        holder.btnClearAccess.setOnClickListener { view ->
+            Util.areYouSure(view.context, R.string.msg_reset_access, object : DoubtListener {
+                override fun onSure() {
+                    DatabaseHelper.getInstance(context).clearAccess(rule.uid, true)
+                    if (!isLive) notifyDataSetChanged()
+                    if (rv != null) rv!!.scrollToPosition(holder.adapterPosition)
+                }
+            })
+        }
 
         // Notify on access
-        holder.cbNotify.setEnabled(prefs.getBoolean("notify_access", false) && rule.apply)
+        holder.cbNotify.isEnabled = prefs.getBoolean("notify_access", false) && rule.apply
         holder.cbNotify.setOnCheckedChangeListener(null)
-        holder.cbNotify.setChecked(rule.notify)
-        holder.cbNotify.setOnCheckedChangeListener(object : CompoundButton.OnCheckedChangeListener {
-            public override fun onCheckedChanged(compoundButton: CompoundButton, isChecked: Boolean) {
-                rule.notify = isChecked
-                updateRule(context, rule, true, listAll)
-            }
-        })
+        holder.cbNotify.isChecked = rule.notify
+        holder.cbNotify.setOnCheckedChangeListener { _, isChecked ->
+            rule.notify = isChecked
+            updateRule(context, rule, true, listAll)
+        }
     }
 
-    public override fun onViewRecycled(holder: ViewHolder) {
+    override fun onViewRecycled(holder: ViewHolder) {
         super.onViewRecycled(holder)
 
         //Context context = holder.itemView.getContext();
         //GlideApp.with(context).clear(holder.ivIcon);
-        val adapter: CursorAdapter? = holder.lvAccess.getAdapter() as CursorAdapter?
+        val adapter: CursorAdapter? = holder.lvAccess.adapter as CursorAdapter?
         if (adapter != null) {
             Log.i(TAG, "Closing access cursor")
             adapter.changeCursor(null)
-            holder.lvAccess.setAdapter(null)
+            holder.lvAccess.adapter = null
         }
     }
 
     private fun markPro(context: Context, menu: MenuItem, sku: String?) {
-        if (sku == null || !IAB.Companion.isPurchased(sku, context)) {
+        if (sku == null || !IAB.isPurchased(sku, context)) {
             val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
             val dark: Boolean = prefs.getBoolean("dark_theme", false)
-            val ssb: SpannableStringBuilder = SpannableStringBuilder("  " + menu.getTitle())
+            val ssb = SpannableStringBuilder("  " + menu.title)
             ssb.setSpan(ImageSpan(context, if (dark) R.drawable.ic_shopping_cart_white_24dp else R.drawable.ic_shopping_cart_black_24dp), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            menu.setTitle(ssb)
+            menu.title = ssb
         }
     }
 
@@ -710,7 +589,7 @@ import java.util.*
         if (rule.lockdown) lockdown.edit().putBoolean(rule.packageName, rule.lockdown).apply() else lockdown.edit().remove(rule.packageName).apply()
         if (rule.notify) notify.edit().remove(rule.packageName).apply() else notify.edit().putBoolean(rule.packageName, rule.notify).apply()
         rule.updateChanged(context)
-        Log.i(TAG, "Updated " + rule)
+        Log.i(TAG, "Updated $rule")
         val listModified: MutableList<Rule?> = ArrayList()
         for (pkg: String? in rule.related!!) {
             for (related: Rule? in listAll) if ((related!!.packageName == pkg)) {
@@ -725,35 +604,34 @@ import java.util.*
                 listModified.add(related)
             }
         }
-        val listSearch: MutableList<Rule?> = (if (root) ArrayList(listAll) else listAll)
+        val listSearch: MutableList<Rule?> = (if (root) ArrayList(listAll) else listAll as MutableList<Rule?>)
         listSearch.remove(rule)
         for (modified: Rule? in listModified) listSearch.remove(modified)
         for (modified: Rule? in listModified) updateRule(context, modified, false, listSearch)
         if (root) {
             notifyDataSetChanged()
             NotificationManagerCompat.from(context).cancel(rule.uid)
-            ServiceSinkhole.Companion.reload("rule changed", context, false)
+            ServiceSinkhole.reload("rule changed", context, false)
         }
     }
 
-    public override fun getFilter(): Filter {
+    override fun getFilter(): Filter {
         return object : Filter() {
             override fun performFiltering(query: CharSequence): FilterResults {
                 var query: CharSequence? = query
                 val listResult: MutableList<Rule?> = ArrayList()
                 if (query == null) listResult.addAll(listAll) else {
-                    query = query.toString().toLowerCase().trim({ it <= ' ' })
-                    var uid: Int
-                    try {
-                        uid = query.toString().toInt()
+                    query = query.toString().toLowerCase(Locale.ROOT).trim { it <= ' ' }
+                    val uid: Int = try {
+                        query.toString().toInt()
                     } catch (ignore: NumberFormatException) {
-                        uid = -1
+                        -1
                     }
                     for (rule: Rule? in listAll) if (((rule!!.uid == uid) ||
-                                    rule.packageName.toLowerCase().contains(query) ||
-                                    (rule.name != null && rule.name!!.toLowerCase().contains(query)))) listResult.add(rule)
+                                    rule.packageName.toLowerCase(Locale.ROOT).contains(query) ||
+                                    (rule.name != null && rule.name!!.toLowerCase(Locale.ROOT).contains(query)))) listResult.add(rule)
                 }
-                val result: FilterResults = FilterResults()
+                val result = FilterResults()
                 result.values = listResult
                 result.count = listResult.size
                 return result
@@ -761,53 +639,52 @@ import java.util.*
 
             override fun publishResults(query: CharSequence, result: FilterResults) {
                 listFiltered.clear()
-                if (result == null) listFiltered.addAll(listAll) else {
-                    listFiltered.addAll((result.values as List<Rule?>?)!!)
-                    if (listFiltered.size == 1) listFiltered.get(0)!!.expanded = true
-                }
+                listFiltered.addAll(result.values as Collection<Rule?>)
+                if (listFiltered.size == 1) listFiltered[0]!!.expanded = true
                 notifyDataSetChanged()
             }
         }
     }
 
-    public override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         return ViewHolder(inflater.inflate(R.layout.rule, parent, false))
     }
 
-    public override fun getItemId(position: Int): Long {
-        val rule: Rule? = listFiltered.get(position)
+    override fun getItemId(position: Int): Long {
+        val rule: Rule? = listFiltered[position]
         return rule!!.packageName.hashCode() * 100000L + rule.uid
     }
 
-    public override fun getItemCount(): Int {
+    override fun getItemCount(): Int {
         return listFiltered.size
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Adapter"
+        private const val TAG: String = "NetGuard.Adapter"
     }
 
     init {
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
         this.anchor = anchor
         inflater = LayoutInflater.from(context)
-        if (prefs.getBoolean("dark_theme", false)) colorChanged = Color.argb(128, Color.red(Color.DKGRAY), Color.green(Color.DKGRAY), Color.blue(Color.DKGRAY)) else colorChanged = Color.argb(128, Color.red(Color.LTGRAY), Color.green(Color.LTGRAY), Color.blue(Color.LTGRAY))
-        val ta: TypedArray = context.getTheme().obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
+        colorChanged = if (prefs.getBoolean("dark_theme", false)) Color.argb(128, Color.red(Color.DKGRAY), Color.green(Color.DKGRAY), Color.blue(Color.DKGRAY)) else Color.argb(128, Color.red(Color.LTGRAY), Color.green(Color.LTGRAY), Color.blue(Color.LTGRAY))
+        val ta: TypedArray = context.theme.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary))
         try {
             colorText = ta.getColor(0, 0)
         } finally {
             ta.recycle()
         }
-        val tv: TypedValue = TypedValue()
-        context.getTheme().resolveAttribute(R.attr.colorOn, tv, true)
+        val tv = TypedValue()
+        context.theme.resolveAttribute(R.attr.colorOn, tv, true)
         colorOn = tv.data
-        context.getTheme().resolveAttribute(R.attr.colorOff, tv, true)
+        context.theme.resolveAttribute(R.attr.colorOff, tv, true)
         colorOff = tv.data
         colorGrayed = ContextCompat.getColor(context, R.color.colorGrayed)
-        val typedValue: TypedValue = TypedValue()
-        context.getTheme().resolveAttribute(android.R.attr.listPreferredItemHeight, typedValue, true)
-        val height: Int = TypedValue.complexToDimensionPixelSize(typedValue.data, context.getResources().getDisplayMetrics())
-        iconSize = Math.round(height * context.getResources().getDisplayMetrics().density + 0.5f)
+        val typedValue = TypedValue()
+        context.theme.resolveAttribute(android.R.attr.listPreferredItemHeight, typedValue, true)
+        val height: Int = TypedValue.complexToDimensionPixelSize(typedValue.data, context.resources.displayMetrics)
+        iconSize = (height * context.resources.displayMetrics.density + 0.5f).roundToInt()
         setHasStableIds(true)
     }
 }
+

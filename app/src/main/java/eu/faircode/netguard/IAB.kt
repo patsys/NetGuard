@@ -17,16 +17,20 @@ package eu.faircode.netguard
 
     Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */
-import android.content.Context
+import android.app.PendingIntent
+import android.content.*
+import android.os.Bundle
+import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.android.vending.billing.IInAppBillingService
+import org.json.JSONException
+import org.json.JSONObject
 import java.util.*
 
-class IAB(delegate: Delegate, context: Context) : ServiceConnection {
-    private val context: Context
-    private val delegate: Delegate
+class IAB(private val delegate: Delegate, context: Context) : ServiceConnection {
+    private val context: Context = context.applicationContext
     private var service: IInAppBillingService? = null
 
     interface Delegate {
@@ -66,17 +70,17 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
         skuList.add(sku)
         val query = Bundle()
         query.putStringArrayList("ITEM_ID_LIST", skuList)
-        val bundle: Bundle = service.getSkuDetails(IAB_VERSION, context.packageName, "inapp", query)
+        val bundle: Bundle = service!!.getSkuDetails(IAB_VERSION, context.packageName, "inapp", query)
         Log.i(TAG, "getSkuDetails")
         Util.logBundle(bundle)
-        val response = if (bundle == null) -1 else bundle.getInt("RESPONSE_CODE", -1)
+        val response = bundle.getInt("RESPONSE_CODE", -1)
         Log.i(TAG, "Response=" + getResult(response))
         require(response == 0) { getResult(response) }
 
         // Check available SKUs
         var found = false
-        val details: ArrayList<String> = bundle.getStringArrayList("DETAILS_LIST")
-        if (details != null) for (item in details) {
+        val details: ArrayList<String> = bundle.getStringArrayList("DETAILS_LIST") as ArrayList<String>
+        for (item in details) {
             val `object` = JSONObject(item)
             if (sku == `object`.getString("productId")) {
                 found = true
@@ -95,7 +99,7 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
         skus.addAll(getPurchases("subs"))
         val prefs: SharedPreferences = context.getSharedPreferences("IAB", Context.MODE_PRIVATE)
         val editor: SharedPreferences.Editor = prefs.edit()
-        for (product in prefs.getAll().keys) if (ActivityPro.Companion.SKU_DONATION != product) {
+        for (product in prefs.all.keys) if (ActivityPro.SKU_DONATION != product) {
             Log.i(TAG, "removing SKU=$product")
             editor.remove(product)
         }
@@ -114,27 +118,26 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
     @Throws(RemoteException::class)
     fun getPurchases(type: String?): List<String> {
         // Get purchases
-        val bundle: Bundle = service.getPurchases(IAB_VERSION, context.packageName, type, null)
+        val bundle: Bundle = service!!.getPurchases(IAB_VERSION, context.packageName, type, null)
         Log.i(TAG, "getPurchases")
         Util.logBundle(bundle)
-        val response = if (bundle == null) -1 else bundle.getInt("RESPONSE_CODE", -1)
+        val response = bundle.getInt("RESPONSE_CODE", -1)
         Log.i(TAG, "Response=" + getResult(response))
         require(response == 0) { getResult(response) }
-        val details: ArrayList<String> = bundle.getStringArrayList("INAPP_PURCHASE_ITEM_LIST")
-        return details ?: ArrayList()
+        return bundle.getStringArrayList("INAPP_PURCHASE_ITEM_LIST") as ArrayList<String>
     }
 
     @Throws(RemoteException::class)
     fun getBuyIntent(sku: String, subscription: Boolean): PendingIntent? {
         if (service == null) return null
-        val bundle: Bundle = service.getBuyIntent(IAB_VERSION, context.packageName, sku, if (subscription) "subs" else "inapp", "netguard")
+        val bundle: Bundle = service!!.getBuyIntent(IAB_VERSION, context.packageName, sku, if (subscription) "subs" else "inapp", "netguard")
         Log.i(TAG, "getBuyIntent sku=$sku subscription=$subscription")
         Util.logBundle(bundle)
-        val response = if (bundle == null) -1 else bundle.getInt("RESPONSE_CODE", -1)
+        val response = bundle.getInt("RESPONSE_CODE", -1)
         Log.i(TAG, "Response=" + getResult(response))
         require(response == 0) { getResult(response) }
         require(bundle.containsKey("BUY_INTENT")) { "BUY_INTENT missing" }
-        return bundle.getParcelable<PendingIntent>("BUY_INTENT")
+        return bundle.getParcelable("BUY_INTENT")
     }
 
     companion object {
@@ -153,11 +156,11 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
                     return !prefs.getBoolean("debug_iab", false)
                 }
                 val prefs: SharedPreferences = context.getSharedPreferences("IAB", Context.MODE_PRIVATE)
-                if (ActivityPro.Companion.SKU_SUPPORT1 == sku || ActivityPro.Companion.SKU_SUPPORT2 == sku) prefs.getBoolean(sku, false) else prefs.getBoolean(sku, false) ||
-                        prefs.getBoolean(ActivityPro.Companion.SKU_PRO1, false) ||
-                        prefs.getBoolean(ActivityPro.Companion.SKU_SUPPORT1, false) ||
-                        prefs.getBoolean(ActivityPro.Companion.SKU_SUPPORT2, false) ||
-                        prefs.getBoolean(ActivityPro.Companion.SKU_DONATION, false)
+                if (ActivityPro.SKU_SUPPORT1 == sku || ActivityPro.SKU_SUPPORT2 == sku) prefs.getBoolean(sku, false) else prefs.getBoolean(sku, false) ||
+                        prefs.getBoolean(ActivityPro.SKU_PRO1, false) ||
+                        prefs.getBoolean(ActivityPro.SKU_SUPPORT1, false) ||
+                        prefs.getBoolean(ActivityPro.SKU_SUPPORT2, false) ||
+                        prefs.getBoolean(ActivityPro.SKU_DONATION, false)
             } catch (ignored: SecurityException) {
                 false
             }
@@ -170,7 +173,7 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
                     return !prefs.getBoolean("debug_iab", false)
                 }
                 val prefs: SharedPreferences = context.getSharedPreferences("IAB", Context.MODE_PRIVATE)
-                for (key in prefs.getAll().keys) if (prefs.getBoolean(key, false)) return true
+                for (key in prefs.all.keys) if (prefs.getBoolean(key, false)) return true
                 false
             } catch (ignored: SecurityException) {
                 false
@@ -188,13 +191,9 @@ class IAB(delegate: Delegate, context: Context) : ServiceConnection {
                 6 -> "ERROR"
                 7 -> "ITEM_ALREADY_OWNED"
                 8 -> "ITEM_NOT_OWNED"
-                else -> Integer.toString(responseCode)
+                else -> responseCode.toString()
             }
         }
     }
 
-    init {
-        this.context = context.applicationContext
-        this.delegate = delegate
-    }
 }

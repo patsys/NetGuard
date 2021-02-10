@@ -27,40 +27,40 @@ import java.util.*
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   class WidgetAdmin constructor() : ReceiverAutostart() {
-    public override fun onReceive(context: Context, intent: Intent) {
+*/   class WidgetAdmin : ReceiverAutostart() {
+    override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        Log.i(TAG, "Received " + intent)
+        Log.i(TAG, "Received $intent")
         Util.logExtras(intent)
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
 
         // Cancel set alarm
         val am: AlarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val i: Intent = Intent(INTENT_ON)
-        i.setPackage(context.getPackageName())
+        val i = Intent(INTENT_ON)
+        i.setPackage(context.packageName)
         val pi: PendingIntent = PendingIntent.getBroadcast(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT)
-        if ((INTENT_ON == intent.getAction()) || (INTENT_OFF == intent.getAction())) am.cancel(pi)
+        if ((INTENT_ON == intent.action) || (INTENT_OFF == intent.action)) am.cancel(pi)
 
         // Vibrate
         val vs: Vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (vs.hasVibrator()) if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vs.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE)) else vs.vibrate(50)
         try {
-            if ((INTENT_ON == intent.getAction()) || (INTENT_OFF == intent.getAction())) {
-                val enabled: Boolean = (INTENT_ON == intent.getAction())
+            if ((INTENT_ON == intent.action) || (INTENT_OFF == intent.action)) {
+                val enabled: Boolean = (INTENT_ON == intent.action)
                 prefs.edit().putBoolean("enabled", enabled).apply()
-                if (enabled) ServiceSinkhole.Companion.start("widget", context) else ServiceSinkhole.Companion.stop("widget", context, false)
+                if (enabled) ServiceSinkhole.start("widget", context) else ServiceSinkhole.stop("widget", context, false)
 
                 // Auto enable
                 val auto: Int = prefs.getString("auto_enable", "0")!!.toInt()
                 if (!enabled && auto > 0) {
-                    Log.i(TAG, "Scheduling enabled after minutes=" + auto)
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) am.set(AlarmManager.RTC_WAKEUP, Date().getTime() + auto * 60 * 1000L, pi) else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Date().getTime() + auto * 60 * 1000L, pi)
+                    Log.i(TAG, "Scheduling enabled after minutes=$auto")
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) am.set(AlarmManager.RTC_WAKEUP, Date().time + auto * 60 * 1000L, pi) else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, Date().time + auto * 60 * 1000L, pi)
                 }
-            } else if ((INTENT_LOCKDOWN_ON == intent.getAction()) || (INTENT_LOCKDOWN_OFF == intent.getAction())) {
-                val lockdown: Boolean = (INTENT_LOCKDOWN_ON == intent.getAction())
+            } else if ((INTENT_LOCKDOWN_ON == intent.action) || (INTENT_LOCKDOWN_OFF == intent.action)) {
+                val lockdown: Boolean = (INTENT_LOCKDOWN_ON == intent.action)
                 prefs.edit().putBoolean("lockdown", lockdown).apply()
-                ServiceSinkhole.Companion.reload("widget", context, false)
-                WidgetLockdown.Companion.updateWidgets(context)
+                ServiceSinkhole.reload("widget", context, false)
+                WidgetLockdown.updateWidgets(context)
             }
         } catch (ex: Throwable) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
@@ -68,10 +68,10 @@ import java.util.*
     }
 
     companion object {
-        private val TAG: String = "NetGuard.Widget"
-        val INTENT_ON: String = "eu.faircode.netguard.ON"
-        val INTENT_OFF: String = "eu.faircode.netguard.OFF"
-        val INTENT_LOCKDOWN_ON: String = "eu.faircode.netguard.LOCKDOWN_ON"
-        val INTENT_LOCKDOWN_OFF: String = "eu.faircode.netguard.LOCKDOWN_OFF"
+        private const val TAG: String = "NetGuard.Widget"
+        const val INTENT_ON: String = "eu.faircode.netguard.ON"
+        const val INTENT_OFF: String = "eu.faircode.netguard.OFF"
+        const val INTENT_LOCKDOWN_ON: String = "eu.faircode.netguard.LOCKDOWN_ON"
+        const val INTENT_LOCKDOWN_OFF: String = "eu.faircode.netguard.LOCKDOWN_OFF"
     }
 }

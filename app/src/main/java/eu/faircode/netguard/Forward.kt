@@ -18,13 +18,13 @@ package eu.faircode.netguard
 
     Copyright 2015-2019 by Marcel Bokhorst (M66B)
 */
-class Forward constructor() {
+class Forward {
     var protocol: Int = 0
     var dport: Int = 0
     var raddr: String? = null
     var rport: Int = 0
     var ruid: Int = 0
-    public override fun toString(): String {
-        return "protocol=" + protocol + " port " + dport + " to " + raddr + "/" + rport + " uid " + ruid
+    override fun toString(): String {
+        return "protocol=$protocol port $dport to $raddr/$rport uid $ruid"
     }
 }
