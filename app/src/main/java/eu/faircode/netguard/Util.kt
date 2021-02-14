@@ -240,7 +240,7 @@ import kotlin.system.exitProcess
         return (pm != null && pm.isInteractive)
     }
 
-    private fun isPackageInstalled(packageName: String?, context: Context): Boolean {
+    fun isPackageInstalled(packageName: String?, context: Context): Boolean {
         return try {
             context.packageManager.getPackageInfo((packageName)!!, 0)
             true
@@ -390,7 +390,8 @@ import kotlin.system.exitProcess
     private fun setTaskColor(context: Context) {
         val tv = TypedValue()
         context.theme.resolveAttribute(R.attr.colorPrimary, tv, true)
-        (context as Activity).setTaskDescription(TaskDescription(null, null, tv.data))
+
+        //(context as Activity).setTaskDescription(TaskDescription(null, null, tv.data))
     }
 
     fun dips2pixels(dips: Int, context: Context): Int {

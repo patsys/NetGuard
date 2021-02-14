@@ -471,7 +471,7 @@ import kotlin.Throws
                 if (!TextUtils.isEmpty(dns)) Toast.makeText(this@ActivitySettings, ex.toString(), Toast.LENGTH_LONG).show()
             }
             preferenceScreen.findPreference(name).title = getString(R.string.setting_dns, prefs.getString(name, "-"))
-            ServiceSinkhole.Companion.reload("changed $name", this, false)
+            ServiceSinkhole.reload("changed $name", this, false)
         } else if (("validate" == name)) {
             val host: String? = prefs.getString(name, "www.google.com")
             try {
@@ -542,7 +542,7 @@ import kotlin.Throws
             prefs.edit().putBoolean("disable_on_call", granted).apply()
             (screen.findPreference("disable_on_call") as TwoStatePreference).isChecked = granted
         }
-        if (granted) ServiceSinkhole.Companion.reload("permission granted", this, false)
+        if (granted) ServiceSinkhole.reload("permission granted", this, false)
     }
 
     @Throws(IllegalArgumentException::class, UnknownHostException::class)
@@ -737,7 +737,7 @@ import kotlin.Throws
                     xmlImport(`in`)
                     withContext(Dispatchers.Main) {
                         Toast.makeText(this@ActivitySettings, R.string.msg_completed, Toast.LENGTH_LONG).show()
-                        ServiceSinkhole.Companion.reloadStats("import", this@ActivitySettings)
+                        ServiceSinkhole.reloadStats("import", this@ActivitySettings)
                         // Update theme, request permissions
                         recreate()
                     }

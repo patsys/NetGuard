@@ -39,7 +39,8 @@ import java.util.*
    along with NetGuard.  If not, see <http://www.gnu.org/licenses/>.
 
    Copyright 2015-2019 by Marcel Bokhorst (M66B)
-*/   open class ActivityDns : AppCompatActivity() {
+*/
+open class ActivityDns : AppCompatActivity() {
     private var running: Boolean = false
     private var adapter: AdapterDns? = null
     val uiScope = CoroutineScope(Dispatchers.Main)

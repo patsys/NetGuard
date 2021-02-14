@@ -65,7 +65,7 @@ class ServiceTileFilter constructor() : TileService(), OnSharedPreferenceChangeL
             if (IAB.Companion.isPurchased(ActivityPro.Companion.SKU_FILTER, this)) {
                 val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
                 prefs.edit().putBoolean("filter", !prefs.getBoolean("filter", false)).apply()
-                ServiceSinkhole.Companion.reload("tile", this, false)
+                ServiceSinkhole.reload("tile", this, false)
             } else Toast.makeText(this, R.string.title_pro_feature, Toast.LENGTH_SHORT).show()
         } else Toast.makeText(this, R.string.msg_unavailable, Toast.LENGTH_SHORT).show()
     }

@@ -133,7 +133,7 @@ import java.net.URLConnection
 
     private suspend fun onPostExecute(result: Any?) {
         wakeLock!!.release()
-        NotificationManagerCompat.from(context).cancel(ServiceSinkhole.Companion.NOTIFY_DOWNLOAD)
+        NotificationManagerCompat.from(context).cancel(ServiceSinkhole.NOTIFY_DOWNLOAD)
         if (result is Throwable) {
             Log.e(TAG, result.toString() + "\n" + Log.getStackTraceString(result as Throwable?))
             listener.onException(result)
@@ -142,7 +142,7 @@ import java.net.URLConnection
 
     private suspend fun showNotification(progress: Int) {
         val main: Intent = Intent(context, ActivitySettings::class.java)
-        val pi: PendingIntent = PendingIntent.getActivity(context, ServiceSinkhole.Companion.NOTIFY_DOWNLOAD, main, PendingIntent.FLAG_UPDATE_CURRENT)
+        val pi: PendingIntent = PendingIntent.getActivity(context, ServiceSinkhole.NOTIFY_DOWNLOAD, main, PendingIntent.FLAG_UPDATE_CURRENT)
         val tv: TypedValue = TypedValue()
         context.theme.resolveAttribute(R.attr.colorOff, tv, true)
         val builder: NotificationCompat.Builder = NotificationCompat.Builder(context, "notify")

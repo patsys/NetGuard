@@ -743,21 +743,21 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
         }
     }
 
-    fun getQName(ip: String?): String? {
+    fun getQName(uid: Int, ip: String): String? {
         lock.readLock().lock()
-        try {
-            val db: SQLiteDatabase = readableDatabase
+        return try {
+            val db = this.readableDatabase
             // There is a segmented index on resource
-            var query: String? = "SELECT d.qname"
+            var query = "SELECT d.qname"
             query += " FROM dns AS d"
-            query += " WHERE d.resource = '" + ip!!.replace("'", "''") + "'"
+            query += " WHERE d.resource = '" + ip.replace("'", "''") + "'"
             query += " ORDER BY d.qname"
             query += " LIMIT 1"
             // There is no way to known for sure which domain name an app used, so just pick the first one
-            return db.compileStatement(query).simpleQueryForString()
+            db.compileStatement(query).simpleQueryForString()
         } catch (ignored: SQLiteDoneException) {
             // Not found
-            return null
+            null
         } finally {
             lock.readLock().unlock()
         }

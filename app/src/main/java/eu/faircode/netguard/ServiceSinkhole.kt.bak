@@ -23,6 +23,7 @@ import android.util.Log
 import android.util.Pair
 import android.util.TypedValue
 import android.widget.RemoteViews
+import androidx.annotation.Keep
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -34,6 +35,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.*
+import java.lang.annotation.Native
 import java.math.BigInteger
 import java.net.*
 import java.text.DateFormat
@@ -966,7 +968,7 @@ import javax.net.ssl.HttpsURLConnection
 
         // Add list of allowed applications
         try {
-            builder.addDisallowedApplication(getPackageName())
+            builder.addDisallowedApplication(packageName)
         } catch (ex: PackageManager.NameNotFoundException) {
             Log.e(TAG, ex.toString() + "\n" + Log.getStackTraceString(ex))
         }
@@ -1172,18 +1174,28 @@ import javax.net.ssl.HttpsURLConnection
                         val name: String = (dresource ?: daddr)
                         if (Util.isNumericAddress(name)) {
                             val iname: InetAddress = InetAddress.getByName(name)
-                            if (version == 4 && iname !is Inet4Address) continue
-                            if (version == 6 && iname !is Inet6Address) continue
-                            val exists: Boolean = mapUidIPFilters[key]!!.containsKey(iname)
-                            if (!exists || !mapUidIPFilters[key]!![iname]!!.isBlocked) {
-                                val rule = IPRule(key, "$name/$iname", block, time + ttl)
-                                mapUidIPFilters[key]!![iname] = rule
-                                if (exists) Log.w(TAG, "Address conflict $key $daddr/$dresource")
-                            } else if (exists) {
-                                mapUidIPFilters[key]!![iname]!!.updateExpires(time + ttl)
-                                if (dname != null && ttl > 60 * 1000L) Log.w(TAG, "Address updated $key $daddr/$dresource")
-                            } else {
-                                if (dname != null) Log.i(TAG, "Ignored $key $daddr/$dresource=$block")
+                            if (!(version == 4 && iname !is Inet4Address) && !(version == 6 && iname !is Inet6Address)) {
+                                val exists: Boolean = mapUidIPFilters[key]!!.containsKey(iname)
+                                if (!exists || !mapUidIPFilters[key]!![iname]!!.isBlocked) {
+                                    val rule = IPRule(key, "$name/$iname", block, time + ttl)
+                                    mapUidIPFilters[key]!![iname] = rule
+                                    if (exists) { Log.w(
+                                        TAG,
+                                        "Address conflict $key $daddr/$dresource"
+                                    ) } else {}
+                                } else if (exists) {
+                                    mapUidIPFilters[key]!![iname]!!.updateExpires(time + ttl)
+                                    if (dname != null && ttl > 60 * 1000L) { Log.w(
+                                        TAG,
+                                        "Address updated $key $daddr/$dresource"
+                                    ) } else {}
+                                } else {
+                                    if (dname != null) { Log.i(
+                                        TAG,
+                                        "Ignored $key $daddr/$dresource=$block"
+                                    ) } else {}
+                                }
+                            } else{
                             }
                         } else Log.w(TAG, "Address not numeric $name")
                     } catch (ex: UnknownHostException) {
@@ -1349,23 +1361,9 @@ import javax.net.ssl.HttpsURLConnection
     // Called from native code
     private fun isDomainBlocked(name: String): Boolean {
         lock.readLock().lock()
-        val blocked: Boolean = (mapHostsBlocked.containsKey(name) && (mapHostsBlocked.get(name))!!)
+        val blocked: Boolean = (mapHostsBlocked.containsKey(name) && (mapHostsBlocked[name])!!)
         lock.readLock().unlock()
         return blocked
-    }
-
-    // Called from native code
-    @TargetApi(Build.VERSION_CODES.Q)
-    private fun getUidQ(protocol: Int, saddr: String, sport: Int, daddr: String, dport: Int): Int {
-        if (protocol != 6 /* TCP */ && protocol != 17 /* UDP */) return Process.INVALID_UID
-        val cm: ConnectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager?
-                ?: return Process.INVALID_UID
-        val local = InetSocketAddress(saddr, sport)
-        val remote = InetSocketAddress(daddr, dport)
-        Log.i(TAG, "Get uid local=$local remote=$remote")
-        val uid: Int = cm.getConnectionOwnerUid(protocol, local, remote)
-        Log.i(TAG, "Get uid=$uid")
-        return uid
     }
 
     private fun isSupported(protocol: Int): Boolean {
@@ -1460,8 +1458,7 @@ import javax.net.ssl.HttpsURLConnection
                 am.cancel(pi)
                 try {
                     val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this@ServiceSinkhole)
-                    val delay: Int
-                    delay = try {
+                    val delay: Int = try {
                         prefs.getString("screen_delay", "0")!!.toInt()
                     } catch (ignored: NumberFormatException) {
                         0
@@ -1595,11 +1592,9 @@ import javax.net.ssl.HttpsURLConnection
                     socket.connect(InetSocketAddress(host, 443), 10000)
                     Log.i(TAG, "Validated $network $ni host=$host")
                     synchronized(validated) { validated.put(network, Date().time) }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        val cm: ConnectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-                        cm.reportNetworkConnectivity(network, true)
-                        Log.i(TAG, "Reported $network $ni")
-                    }
+                    val cm: ConnectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                    cm.reportNetworkConnectivity(network, true)
+                    Log.i(TAG, "Reported $network $ni")
                 } catch (ex: IOException) {
                     Log.e(TAG, ex.toString())
                     Log.i(TAG, "No connectivity $network $ni")
@@ -1760,6 +1755,7 @@ import javax.net.ssl.HttpsURLConnection
 
     override fun onCreate() {
         Log.i(TAG, "Create version=" + Util.getSelfVersionName(this) + "/" + Util.getSelfVersionCode(this))
+        ServiceSinkhole.instance = this
         startForeground(NOTIFY_WAITING, waitingNotification)
         val prefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
         if (jni_context != 0L) {
@@ -1800,12 +1796,10 @@ import javax.net.ssl.HttpsURLConnection
         registeredUser = true
 
         // Listen for idle mode state changes
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val ifIdle = IntentFilter()
-            ifIdle.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
-            registerReceiver(idleStateReceiver, ifIdle)
-            registeredIdleState = true
-        }
+        val ifIdle = IntentFilter()
+        ifIdle.addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
+        registerReceiver(idleStateReceiver, ifIdle)
+        registeredIdleState = true
 
         // Listen for added/removed applications
         val ifPackage = IntentFilter()
@@ -1831,8 +1825,7 @@ import javax.net.ssl.HttpsURLConnection
         // Setup house holding
         val alarmIntent = Intent(this, ServiceSinkhole::class.java)
         alarmIntent.action = ACTION_HOUSE_HOLDING
-        val pi: PendingIntent
-        pi = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) PendingIntent.getForegroundService(this, 0, alarmIntent, PendingIntent.FLAG_UPDATE_CURRENT) else PendingIntent.getService(this, 0, alarmIntent, PendingIntent.FLAG_UPDATE_CURRENT)
+        val pi: PendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) PendingIntent.getForegroundService(this, 0, alarmIntent, PendingIntent.FLAG_UPDATE_CURRENT) else PendingIntent.getService(this, 0, alarmIntent, PendingIntent.FLAG_UPDATE_CURRENT)
         val am: AlarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
         am.setInexactRepeating(AlarmManager.RTC, SystemClock.elapsedRealtime() + 60 * 1000, AlarmManager.INTERVAL_HALF_DAY, pi)
     }
@@ -2003,7 +1996,7 @@ import javax.net.ssl.HttpsURLConnection
         notifyNewApplication(uid)
 
         // Update UI
-        val ruleset: Intent = Intent(ActivityMain.ACTION_RULES_CHANGED)
+        val ruleset = Intent(ActivityMain.ACTION_RULES_CHANGED)
         LocalBroadcastManager.getInstance(this@ServiceSinkhole).sendBroadcast(ruleset)
     }
 
@@ -2116,7 +2109,7 @@ import javax.net.ssl.HttpsURLConnection
         if (allowed >= 0) last_allowed = allowed else allowed = last_allowed
         if (blocked >= 0) last_blocked = blocked else blocked = last_blocked
         if (hosts >= 0) last_hosts = hosts else hosts = last_hosts
-        return return if ((allowed >= 0) || (blocked >= 0) || (hosts >= 0)) {
+        return  if ((allowed >= 0) || (blocked >= 0) || (hosts >= 0)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 if (Util.isPlayStoreInstall(this)) builder.setContentText(getString(R.string.msg_packages, allowed, blocked)) else builder.setContentText(getString(R.string.msg_hosts, allowed, blocked, hosts))
                 builder.build()
@@ -2173,27 +2166,6 @@ import javax.net.ssl.HttpsURLConnection
         val notification: NotificationCompat.BigTextStyle = NotificationCompat.BigTextStyle(builder)
         notification.bigText(getString(R.string.msg_revoked))
         NotificationManagerCompat.from(this).notify(NOTIFY_DISABLED, (notification.build())!!)
-    }
-
-    private fun showAutoStartNotification() {
-        val main = Intent(this, ActivityMain::class.java)
-        main.putExtra(ActivityMain.EXTRA_APPROVE, true)
-        val pi: PendingIntent = PendingIntent.getActivity(this, NOTIFY_AUTOSTART, main, PendingIntent.FLAG_UPDATE_CURRENT)
-        val tv = TypedValue()
-        theme.resolveAttribute(R.attr.colorOff, tv, true)
-        val builder: NotificationCompat.Builder = NotificationCompat.Builder(this, "notify")
-        builder.setSmallIcon(R.drawable.ic_error_white_24dp)
-                .setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(R.string.msg_autostart))
-                .setContentIntent(pi)
-                .setColor(tv.data)
-                .setOngoing(false)
-                .setAutoCancel(true)
-        builder.setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-        val notification: NotificationCompat.BigTextStyle = NotificationCompat.BigTextStyle(builder)
-        notification.bigText(getString(R.string.msg_autostart))
-        NotificationManagerCompat.from(this).notify(NOTIFY_AUTOSTART, (notification.build())!!)
     }
 
     private fun showErrorNotification(message: String) {
@@ -2255,7 +2227,7 @@ import javax.net.ssl.HttpsURLConnection
             since = pm.getPackageInfo(packages[0], 0).firstInstallTime
         } catch (ignored: PackageManager.NameNotFoundException) {
         }
-        DatabaseHelper.getInstance(this@ServiceSinkhole)!!.getAccessUnset(uid, 7, since).use { cursor ->
+        DatabaseHelper.getInstance(this@ServiceSinkhole).getAccessUnset(uid, 7, since).use { cursor ->
             val colDAddr: Int = cursor.getColumnIndex("daddr")
             val colTime: Int = cursor.getColumnIndex("time")
             val colAllowed: Int = cursor.getColumnIndex("allowed")
@@ -2349,8 +2321,8 @@ import javax.net.ssl.HttpsURLConnection
             return this
         }
 
-        override fun equals(obj: Any?): Boolean {
-            val other: Builder = obj as Builder? ?: return false
+        override fun equals(other: Any?): Boolean {
+            val other: Builder = other as Builder? ?: return false
             if ((networkInfo == null) || (other.networkInfo == null) || (
                             networkInfo.type != other.networkInfo.type)) return false
             if (mtu != other.mtu) return false
@@ -2375,9 +2347,9 @@ import javax.net.ssl.HttpsURLConnection
                                           var uid: Int
     ) {
         var dport: Int = (if (protocol == 6 || protocol == 17) dport else 0)
-        override fun equals(obj: Any?): Boolean {
-            if (obj !is IPKey) return false
-            val other: IPKey = obj
+        override fun equals(other: Any?): Boolean {
+            if (other !is IPKey) return false
+            val other: IPKey = other
             return ((version == other.version) && (
                     protocol == other.protocol) && (
                     dport == other.dport) && (
@@ -2392,9 +2364,6 @@ import javax.net.ssl.HttpsURLConnection
             return "v$version p$protocol port=$dport uid=$uid"
         }
 
-        init {
-            // Only TCP (6) and UDP (17) have port numbers
-        }
     }
 
     private inner class IPRule constructor(private val key: IPKey, private val name: String, val isBlocked: Boolean, private var expires: Long) {
@@ -2444,6 +2413,7 @@ import javax.net.ssl.HttpsURLConnection
         private const val MSG_STATS_UPDATE: Int = 3
         private const val MSG_PACKET: Int = 4
         private const val MSG_USAGE: Int = 5
+        private var instance: ServiceSinkhole? = null;
 
         @Volatile
         private var wlInstance: WakeLock? = null
@@ -2477,7 +2447,7 @@ import javax.net.ssl.HttpsURLConnection
             if (wlInstance == null) {
                 val pm: PowerManager = context.getSystemService(POWER_SERVICE) as PowerManager
                 wlInstance = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, context.getString(R.string.app_name) + " wakelock")
-                wlInstance.setReferenceCounted(true)
+                wlInstance!!.setReferenceCounted(true)
             }
             return wlInstance
         }
@@ -2490,6 +2460,7 @@ import javax.net.ssl.HttpsURLConnection
             }
         }
 
+        @JvmStatic
         fun getDns(context: Context): List<InetAddress?> {
             val listDns: MutableList<InetAddress?> = ArrayList()
             val sysDns: List<String> = Util.getDefaultDNS(context)
@@ -2572,6 +2543,7 @@ import javax.net.ssl.HttpsURLConnection
             ContextCompat.startForegroundService((context)!!, intent)
         }
 
+        @JvmStatic
         fun start(reason: String?, context: Context?) {
             val intent = Intent(context, ServiceSinkhole::class.java)
             intent.putExtra(EXTRA_COMMAND, Command.start)
@@ -2603,6 +2575,22 @@ import javax.net.ssl.HttpsURLConnection
             intent.putExtra(EXTRA_COMMAND, Command.stats)
             intent.putExtra(EXTRA_REASON, reason)
             ContextCompat.startForegroundService((context)!!, intent)
+        }
+
+
+        // Called from native code
+        @RequiresApi(Build.VERSION_CODES.Q)
+        @JvmStatic
+        fun getUidQ(protocol: Int, saddr: String, sport: Int, daddr: String, dport: Int): Int {
+            if (protocol != 6 /* TCP */ && protocol != 17 /* UDP */) return Process.INVALID_UID
+            val cm: ConnectivityManager = ServiceSinkhole.instance!!.getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager?
+                ?: return Process.INVALID_UID
+            val local = InetSocketAddress(saddr, sport)
+            val remote = InetSocketAddress(daddr, dport)
+            Log.i(TAG, "Get uid local=$local remote=$remote")
+            val uid: Int = cm.getConnectionOwnerUid(protocol, local, remote)
+            Log.i(TAG, "Get uid=$uid")
+            return uid
         }
     }
 }

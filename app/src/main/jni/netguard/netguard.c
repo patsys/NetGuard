@@ -247,7 +247,7 @@ Java_eu_faircode_netguard_ServiceSinkhole_jni_1get_1stats(
 }
 
 JNIEXPORT void JNICALL
-Java_eu_faircode_netguard_ServiceSinkhole_jni_1pcap(
+Java_eu_faircode_netguard_ServiceSinkhole_00024Companion_jni_1pcap(
         JNIEnv *env, jclass type,
         jstring name_, jint record_size, jint file_size) {
 

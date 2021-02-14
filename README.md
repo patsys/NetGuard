@@ -1,4 +1,7 @@
-# NetGuard
+# NetGuard convert Kotlin not Work
+
+JNI, static function and task Problem
+
 
 *NetGuard* provides simple and advanced ways to block access to the internet - no root required.
 Applications and addresses can individually be allowed or denied access to your Wi-Fi and/or mobile connection.
